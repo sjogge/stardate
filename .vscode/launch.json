@@ -1,0 +1,17 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug stardate-api",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/stardate-api/target/debug/stardate-api",
+            "args": [],
+            "cwd": "${workspaceFolder}/src/stardate-api",
+            "preLaunchTask": "cargo build stardate-api"
+        }
+    ]
+}
