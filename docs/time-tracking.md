@@ -1,0 +1,297 @@
+# Time tracking specification
+
+## Concepts
+
+- **Job**: an employment, workplace or project. A user has one or more jobs.
+- **Schedule**: the expected working pattern of a job from a given date (`valid_from`), with
+  per-weekday minutes and whether lunch and breaks are paid.
+- **Work day**: one registered calendar day for a job. Either `work` (with start and end) or `flex`
+  (a day off taken from the flex balance).
+- **Pause**: lunch, break or other (unpaid absence, e.g. a dentist visit) within a work day.
+- **Flex balance**: sum of the balance of all registered days plus manual adjustments.
+
+## Time handling
+
+- Instants (start, end, pause times) are stored as `INTEGER` Unix seconds (UTC).
+  The API accepts RFC 3339 with any offset, normalizes to UTC and truncates to whole seconds.
+  Responses use RFC 3339 in UTC.
+- Calendar dates (`work_date`, `valid_from`) are stored as `TEXT` `YYYY-MM-DD`.
+- The server is timezone-agnostic. The client sends the local work date when clocking in or
+  registering a day, and formats instants in local time for display.
+- Weekdays are derived from the work date (ISO 8601, 1 = Monday). No timezone is needed for that.
+- Durations are computed in seconds and exposed in the API as whole minutes (rounded to nearest).
+  Sum seconds first, convert last, so totals do not drift.
+
+## Data model
+
+Migration `0002_time_tracking.sql`:
+
+```sql
+CREATE TABLE users (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT    NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+) STRICT;
+
+-- Single user until authentication exists
+INSERT INTO users (id, name) VALUES (1, 'default');
+
+CREATE TABLE jobs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id),
+    name        TEXT    NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
+    archived_at INTEGER,
+    version     INTEGER NOT NULL DEFAULT 1,
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    UNIQUE (user_id, name)
+) STRICT;
+
+CREATE TABLE schedules (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id      INTEGER NOT NULL REFERENCES jobs(id),
+    valid_from  TEXT    NOT NULL CHECK (date(valid_from) = valid_from),
+    -- No defaults: paid or unpaid must be a deliberate choice per employment
+    lunch_paid  INTEGER NOT NULL CHECK (lunch_paid IN (0, 1)),
+    breaks_paid INTEGER NOT NULL CHECK (breaks_paid IN (0, 1)),
+    version     INTEGER NOT NULL DEFAULT 1,
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    UNIQUE (job_id, valid_from)
+) STRICT;
+
+-- A missing weekday means no expected work that day
+CREATE TABLE schedule_days (
+    schedule_id   INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+    weekday       INTEGER NOT NULL CHECK (weekday BETWEEN 1 AND 7),
+    work_minutes  INTEGER NOT NULL CHECK (work_minutes BETWEEN 0 AND 1440),
+    lunch_minutes INTEGER NOT NULL CHECK (lunch_minutes BETWEEN 0 AND 1440),
+    break_minutes INTEGER NOT NULL CHECK (break_minutes BETWEEN 0 AND 1440),
+    PRIMARY KEY (schedule_id, weekday)
+) STRICT;
+
+CREATE TABLE work_days (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id                 INTEGER NOT NULL REFERENCES jobs(id),
+    work_date              TEXT    NOT NULL CHECK (date(work_date) = work_date),
+    kind                   TEXT    NOT NULL DEFAULT 'work' CHECK (kind IN ('work', 'flex')),
+    started_at             INTEGER,
+    ended_at               INTEGER,
+    -- Snapshot taken at creation so schedule changes never alter history
+    schedule_id            INTEGER REFERENCES schedules(id) ON DELETE SET NULL,
+    expected_work_minutes  INTEGER NOT NULL CHECK (expected_work_minutes >= 0),
+    expected_lunch_minutes INTEGER NOT NULL CHECK (expected_lunch_minutes >= 0),
+    expected_break_minutes INTEGER NOT NULL CHECK (expected_break_minutes >= 0),
+    lunch_paid             INTEGER NOT NULL CHECK (lunch_paid IN (0, 1)),
+    breaks_paid            INTEGER NOT NULL CHECK (breaks_paid IN (0, 1)),
+    note                   TEXT,
+    version                INTEGER NOT NULL DEFAULT 1,
+    created_at             INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at             INTEGER NOT NULL DEFAULT (unixepoch()),
+    UNIQUE (job_id, work_date),
+    -- Only work days have times
+    CHECK ((kind = 'work') = (started_at IS NOT NULL)),
+    -- SQLite CHECKs pass on NULL, so guard the end time explicitly
+    CHECK (started_at IS NOT NULL OR ended_at IS NULL),
+    CHECK (ended_at IS NULL OR ended_at > started_at)
+) STRICT;
+
+CREATE UNIQUE INDEX work_days_one_open
+    ON work_days(job_id) WHERE kind = 'work' AND ended_at IS NULL;
+
+CREATE TABLE pauses (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    work_day_id INTEGER NOT NULL REFERENCES work_days(id) ON DELETE CASCADE,
+    kind        TEXT    NOT NULL CHECK (kind IN ('lunch', 'break', 'other')),
+    started_at  INTEGER,
+    ended_at    INTEGER,
+    minutes     INTEGER CHECK (minutes >= 0),
+    -- Either timed (start, end once finished) or a plain duration, never both
+    CHECK (
+        (started_at IS NOT NULL AND minutes IS NULL)
+        OR (started_at IS NULL AND ended_at IS NULL AND minutes IS NOT NULL)
+    ),
+    CHECK (ended_at IS NULL OR ended_at > started_at)
+) STRICT;
+
+CREATE INDEX pauses_work_day ON pauses(work_day_id);
+CREATE UNIQUE INDEX pauses_one_open
+    ON pauses(work_day_id) WHERE started_at IS NOT NULL AND ended_at IS NULL;
+
+CREATE TABLE flex_adjustments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id      INTEGER NOT NULL REFERENCES jobs(id),
+    adjusted_on TEXT    NOT NULL CHECK (date(adjusted_on) = adjusted_on),
+    minutes     INTEGER NOT NULL CHECK (minutes != 0),
+    note        TEXT,
+    version     INTEGER NOT NULL DEFAULT 1,
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at  INTEGER NOT NULL DEFAULT (unixepoch())
+) STRICT;
+
+CREATE INDEX flex_adjustments_job ON flex_adjustments(job_id);
+```
+
+Jobs, schedules and work days have no `ON DELETE CASCADE` from `jobs`: deleting a job with history
+fails with a foreign key violation (409). Jobs are archived instead.
+
+## Rules
+
+### Schedule selection and snapshot
+
+- The schedule for a date is the job's schedule with the latest `valid_from <= work_date`.
+- The weekday row of that schedule gives expected work, lunch and break minutes. If there is no
+  schedule or no row for that weekday, all expected values are 0 (all worked time is overtime).
+- When a work day is **created**, these values and the paid flags are copied into the work day.
+- Schedules and their weekday rows may be edited or deleted freely. This never changes existing
+  work days, only days created afterwards.
+
+### Worked time for a `work` day
+
+Per pause kind (lunch, break):
+
+- **actual** = sum of logged pauses of that kind. If none are logged, it defaults to the expected
+  minutes. A timed pause counts `ended_at - started_at`, a running pause counts until now, a
+  duration-only pause counts `minutes`. A logged duration of 0 means the pause was skipped.
+- **allowance** = expected minutes if that kind is paid, otherwise 0. The allowance is credited
+  regardless of the actual pause length.
+
+`other` pauses have no default and no allowance; they are always deducted.
+
+```
+presence = (ended_at or now) - started_at
+worked   = presence - actual_lunch - actual_break - other + allowance_lunch + allowance_break
+balance  = worked - expected_work
+```
+
+So a shorter paid lunch lets you leave earlier, and a longer one costs the extra time.
+
+### `flex` day
+
+- `worked = 0`, so `balance = -expected_work` (from the snapshot).
+- No times and no pauses.
+- Reject with 400 if the expected work for that date is 0 (it would cost nothing).
+
+### Leave at (daily only, never based on the flex balance)
+
+While a work day is open:
+
+```
+leave_at = started_at + expected_work - allowance_lunch - allowance_break + planned pauses
+```
+
+Planned pauses, where actual-so-far includes a running pause up to now:
+
+- **lunch**: the larger of actual-so-far and expected while no lunch is logged or one is running;
+  the actual minutes once all logged lunch pauses are finished. A short lunch moves `leave_at`
+  earlier when it ends.
+- **break**: the larger of actual-so-far and expected for as long as the day is open. Breaks are
+  often split into several, so a finished first break must not be read as "no more breaks today".
+- **other**: actual-so-far (no expectation).
+
+`leave_at` is a forecast. `worked` and `balance` always use the actual pauses (with the defaults
+above), so a short break still counts in full once the day is closed.
+
+### Flex balance
+
+```
+flex = sum(balance of every registered day) + sum(flex_adjustments.minutes)
+```
+
+Days that are not registered are ignored (sick days, vacation and forgotten days have no effect).
+Forgotten days can be registered later.
+
+### Validation
+
+- `ended_at > started_at`, and a day is at most 24 hours.
+- Timed pauses lie within the day (`started_at` to `ended_at`, or now if open) and do not overlap.
+- Only one open work day per job and one running pause per day (also enforced by indexes).
+- No clock-in on an archived job (409).
+- A day has a single interval. A mid-day absence is a pause of kind `other`.
+
+### Editing and deleting days
+
+- Editing a day replaces its times, pauses (as a whole list), note and kind. The snapshot is kept.
+- The edit may override snapshot values via `expected` (any of `workMinutes`, `lunchMinutes`,
+  `breakMinutes`, `lunchPaid`, `breaksPaid`), or re-take the snapshot from the current schedule via
+  `refreshExpected: true`. Sending both is a 400.
+- Moving a day to another date is a delete plus a new registration, since the snapshot depends on
+  the date.
+- Deleting a day removes its pauses (cascade) and its effect on the flex balance.
+
+## API
+
+All routes under `/api`, JSON in `camelCase`, errors as `{"message": "..."}`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET, POST | `/jobs` | List / create jobs |
+| GET, PUT | `/jobs/{id}` | Get / rename |
+| POST | `/jobs/{id}/archive` | Archive (history kept) |
+| GET, POST | `/jobs/{id}/schedules` | List / create schedule versions (with weekday rows) |
+| GET, PUT, DELETE | `/jobs/{id}/schedules/{scheduleId}` | Get / edit / delete a version |
+| GET | `/jobs/{id}/days?from=&to=` | Days in a date range, with totals |
+| GET, PUT, DELETE | `/jobs/{id}/days/{date}` | Get / create or replace / delete a day |
+| POST | `/jobs/{id}/clock-in` | `{ workDate, at? }` creates the day with snapshot, opens it |
+| POST | `/jobs/{id}/clock-out` | `{ at? }` closes the open day |
+| POST | `/jobs/{id}/pauses/start` | `{ kind, at? }` on the open day |
+| POST | `/jobs/{id}/pauses/end` | `{ at? }` ends the running pause |
+| GET | `/jobs/{id}/summary?from=&to=` | Per-day totals and range totals |
+| GET | `/jobs/{id}/flex` | Total flex balance |
+| GET, POST | `/jobs/{id}/flex-adjustments` | List / add adjustments |
+| PUT, DELETE | `/jobs/{id}/flex-adjustments/{adjustmentId}` | Edit / delete |
+| GET | `/status` | Per active job: clocked in, start, running pause, worked so far, today's balance, `leaveAt`, total flex |
+
+`at` defaults to the server's current time.
+
+Example of registering a past day:
+
+```json
+PUT /api/jobs/1/days/2026-10-23
+If-None-Match: *
+
+{
+  "kind": "work",
+  "startedAt": "2026-10-23T08:00:00+02:00",
+  "endedAt": "2026-10-23T17:00:00+02:00",
+  "pauses": [
+    { "kind": "lunch", "minutes": 60 },
+    { "kind": "break", "startedAt": "2026-10-23T10:00:00+02:00", "endedAt": "2026-10-23T10:15:00+02:00" }
+  ],
+  "note": "Forgot to clock in"
+}
+```
+
+Day responses include the stored data plus computed values: `presenceMinutes`, actual pause minutes
+per kind, `allowanceMinutes`, `workedMinutes`, `expectedWorkMinutes`, `balanceMinutes`, and `version`.
+
+## Optimistic concurrency
+
+- `jobs`, `schedules` (covering their weekday rows), `work_days` (covering their pauses) and
+  `flex_adjustments` have a `version`.
+- Single-resource responses include `version` in the body and `ETag: "<version>"`. List items include
+  `version`.
+- `PUT` and `DELETE` require `If-Match: "<version>"`. The update is one statement:
+  `UPDATE ... SET ..., version = version + 1, updated_at = unixepoch() WHERE id = ? AND version = ?`.
+  If no row is affected: 404 if the row does not exist, otherwise 412.
+- `PUT /jobs/{id}/days/{date}` also accepts `If-None-Match: *` for create-only (412 if the day exists).
+  Without either header: 428.
+- Clock-in/out and pause start/end need no precondition (they are guarded by state and return 409
+  on an invalid state) but they bump the day's version.
+- Multi-statement updates run in a transaction whose first statement is the versioned `UPDATE`,
+  so the SQLite write lock is taken immediately. Roll back if it affects no rows.
+- Implement `If-Match` parsing as a small extractor (e.g. `ExpectedVersion(i64)`), and add
+  `AppError::PreconditionFailed` (412) and `AppError::PreconditionRequired` (428).
+
+## Suggested implementation order
+
+One commit per step, each building and passing clippy:
+
+1. Concurrency building blocks (extractor, ETag helper, new error variants).
+2. Migration `0002_time_tracking.sql`; jobs CRUD and archive.
+3. Schedules with weekday rows.
+4. Pure calculation module (worked time, balance, leave-at).
+5. Days: GET list/single, PUT, DELETE, including snapshot handling.
+6. Live actions: clock-in/out, pause start/end.
+7. Summary, flex balance, flex adjustments, status.
+8. Remove the pizza example (delete module, migration dropping the table).
