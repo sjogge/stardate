@@ -11,14 +11,14 @@ small: one Rust binary with SQLite compiled in.
 
 ## Status
 
-| Area                                                                                              | State                                                                     |
-| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Backend infrastructure (config, DB, migrations, logging, errors, health check, graceful shutdown) | Done                                                                      |
-| Docker image + Compose                                                                            | Done                                                                      |
-| Data model (jobs, schedules, time entries)                                                        | Next. `pizza` is a placeholder resource used to set up the infrastructure |
-| Frontend (Svelte)                                                                                 | Not started                                                               |
-| Tests                                                                                             | Later                                                                     |
-| Authentication                                                                                    | Later. **Do not expose beyond the LAN until then**                        |
+| Area                                                                                              | State                                                                      |
+| ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Backend infrastructure (config, DB, migrations, logging, errors, health check, graceful shutdown) | Done                                                                       |
+| Docker image + Compose                                                                            | Done                                                                       |
+| Data model (jobs, schedules, time entries)                                                        | Next. `pizza` was a placeholder resource used to set up the infrastructure |
+| Frontend (Svelte)                                                                                 | Not started                                                                |
+| Tests                                                                                             | Later                                                                      |
+| Authentication                                                                                    | Later. **Do not expose beyond the LAN until then**                         |
 
 ## Tech stack
 
@@ -43,7 +43,6 @@ stardate/
 │       ├── db.rs            # SQLite connection pool and pragmas
 │       ├── error.rs         # AppError -> HTTP response mapping
 │       ├── health.rs        # GET /api/health
-│       └── pizza.rs         # placeholder CRUD resource (to be replaced)
 ├── compose.yaml
 └── README.md
 ```
@@ -94,11 +93,9 @@ docker compose cp api:/data/stardate.db ./copy.db   # copy the DB out (stop firs
 
 ## API
 
-| Method            | Path               | Description                             |
-| ----------------- | ------------------ | --------------------------------------- |
-| GET               | `/api/health`      | 200 if the app and database respond     |
-| GET, POST, DELETE | `/api/pizzas`      | Placeholder: list / create / delete all |
-| GET, PUT, DELETE  | `/api/pizzas/{id}` | Placeholder: get / update / delete one  |
+| Method | Path          | Description                         |
+| ------ | ------------- | ----------------------------------- |
+| GET    | `/api/health` | 200 if the app and database respond |
 
 Errors are returned as JSON `{ "message": "..." }`:
 
@@ -134,7 +131,7 @@ ssh pi 'cd ~/stardate && docker compose up -d'
 ## Roadmap
 
 - [ ] Data model: jobs, versioned schedules, time entries (work/lunch/break), stored in UTC
-- [ ] Replace the `pizza` placeholder and its migration
+- [x] Replace the `pizza` placeholder and its migration
 - [ ] Tests
 - [ ] Svelte frontend, served by axum
 - [ ] Authentication

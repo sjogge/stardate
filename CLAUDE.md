@@ -27,7 +27,6 @@ backend/
     db.rs                  # pool: WAL, synchronous=NORMAL, foreign_keys, busy_timeout
     error.rs               # AppError -> HTTP status + {"message": ...}
     health.rs              # GET /api/health
-    pizza.rs               # dev example only; remove (see below)
 compose.yaml
 docs/time-tracking.md      # domain spec
 ```
@@ -65,11 +64,6 @@ Before considering work done: fmt, clippy (no warnings) and build must pass.
 - Authentication is deferred. Use the seeded user (id 1) and scope all data through
   `jobs.user_id` so authentication only has to supply the user id later.
 
-## Removing the pizza example
-
-Once the first time-tracking resource works, delete `pizza.rs` and its routes, and add a new
-migration that drops the `pizzas` table. Do not edit `0001_create_pizzas.sql`.
-
 ## Working rules
 
 - Read existing code and follow its conventions before changing anything.
@@ -79,3 +73,4 @@ migration that drops the `pizzas` table. Do not edit `0001_create_pizzas.sql`.
 - Commits: imperative subject of at most 72 characters, body explains why, one logical change per commit.
 - Ask before destructive or shared-impact actions: pushing, force-pushing, deleting branches or files,
   dropping data. Never use `--no-verify`.
+

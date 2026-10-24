@@ -1,9 +1,10 @@
+mod auth;
+mod concurrency;
 mod config;
 mod db;
 mod error;
 mod health;
-mod pizza;
-mod concurrency;
+mod jobs;
 
 use anyhow::Context;
 use axum::{Router, routing::get};
@@ -31,7 +32,7 @@ async fn main() -> anyhow::Result<()> {
         .context("failed to run migrations")?;
 
     let app: Router = Router::new()
-        .nest("/api/pizzas", pizza::routes())
+        .nest("/api/jobs", jobs::routes())
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))

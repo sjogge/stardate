@@ -12,10 +12,8 @@ pub enum AppError {
     Conflict(String),
     Unavailable,
     // The If-Match version no longer matches: someone else changed the resource
-    #[expect(dead_code, reason = "returned by versioned updates from step 2")]
     PreconditionFailed,
     // A write that requires If-Match was sent without it
-    #[expect(dead_code, reason = "returned by the ExpectedVersion extractor from step 2")]
     PreconditionRequired,
     Database(sqlx::Error),
 }

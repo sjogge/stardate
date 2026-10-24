@@ -1,5 +1,3 @@
-#![expect(dead_code, reason = "used by the jobs module from step 2")]
-
 use axum::{
     Json,
     extract::FromRequestParts,
