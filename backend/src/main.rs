@@ -36,8 +36,8 @@ async fn main() -> anyhow::Result<()> {
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
                 .on_response(DefaultOnResponse::new().level(Level::INFO)),
         )
-        // .layer() only wraps the routes that were added before it.
-        //  At this place we reduce log spam by successfully  health checks.
+        // .layer() only wraps the routes added before it, so the health check
+        // below is not request-logged (avoids a log line every healthcheck interval).
         .route("/api/health", get(health::health_check))
         .with_state(pool.clone());
 

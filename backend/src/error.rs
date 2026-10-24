@@ -17,28 +17,35 @@ pub enum AppError {
 // Lets `?` convert sqlx errors automatically
 impl From<sqlx::Error> for AppError {
     fn from(e: sqlx::Error) -> Self {
-        if matches!(e, sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed) {
-            tracing::warn!(error = %e, "database temporarily unavailable");
-            return AppError::Unavailable;
-        }
+        match e {
+            // fetch_one() found no row: the requested resource doesn't exist
+            sqlx::Error::RowNotFound => AppError::NotFound,
 
-        // This comes from inside the Database and is a variant of sqlx::Error.
-        let kind = e.as_database_error().map(|db| db.kind());
+            // Pool exhausted or shutting down: a temporary condition, the client may retry
+            sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed => {
+                tracing::warn!(error = %e, "database temporarily unavailable");
+                AppError::Unavailable
+            }
+            // Errors reported by SQLite itself. `ref` borrows instead of moving,
+            // so `e` can still be moved into AppError::Database if unclassified.
+            sqlx::Error::Database(ref db_error) => match db_error.kind() {
+                ErrorKind::UniqueViolation => {
+                    tracing::warn!(error = %db_error, "unique constraint violated");
+                    AppError::Conflict("resource already exists".into())
+                }
+                ErrorKind::ForeignKeyViolation => {
+                    tracing::warn!(error = %db_error, "foreign key constraint violated");
+                    AppError::Conflict("referenced resource is missing or still in use".into())
+                }
+                ErrorKind::CheckViolation | ErrorKind::NotNullViolation => {
+                    tracing::warn!(error = %db_error, "check constraint violated");
+                    AppError::Validation("invalid value".into())
+                }
+                // Any other database error (including "database is locked") is a 500
+                _ => AppError::Database(e),
+            },
 
-        match kind {
-            Some(ErrorKind::UniqueViolation) => {
-                tracing::warn!(error = %e, "unique constraint violated");
-                AppError::Conflict("resource already exists".into())
-            }
-            Some(ErrorKind::ForeignKeyViolation) => {
-                tracing::warn!(error = %e, "foreign key constraint violated");
-                AppError::Conflict("referenced resource is missing or still in use".into())
-            }
-            Some(ErrorKind::CheckViolation | ErrorKind::NotNullViolation) => {
-                tracing::warn!(error = %e, "check constraint violated");
-                AppError::Validation("invalid value".into())
-            }
-            // Everything else (connection errors, RowNotFound, ...) is a 500
+            // Anything else (I/O, decoding, ...) is unexpected: a 500
             _ => AppError::Database(e),
         }
     }
