@@ -12,6 +12,14 @@ services:
       resources:
         limits:
           memory: 128m
+    read_only: true # root filesystem read-only; /data volume stays writable
+    cap_drop: [ALL] # app needs no Linux capabilities
+    security_opt: ['no-new-privileges:true']
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/api/health']
+      interval: 1m
+      timeout: 3s
+      retries: 3
 
 volumes:
   stardate-data:

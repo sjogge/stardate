@@ -62,9 +62,6 @@ WORKDIR /data
 # Copy only the compiled binary from the build stage.
 COPY --from=build /bin/server /bin/
 
-ENV DATABASE_URL=sqlite:///data/stardate.db?mode=rwc
-ENV BIND_ADDR=0.0.0.0:3000
-
 EXPOSE 3000
 VOLUME /data
 

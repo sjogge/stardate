@@ -1,36 +1,50 @@
-mod pizza;
+mod db;
 mod error;
+mod health;
+mod pizza;
 
-use axum::Router;
-use sqlx::SqlitePool;
+use anyhow::{Context, Ok};
+use axum::{Router, routing::get};
 use tokio::signal;
 
-const DEFAULT_DATABASE_URL: &str = "sqlite:stardate.db?mode=rwc";
+const DEFAULT_DATABASE_URL: &str = "sqlite:stardate.db";
 const DEFAULT_BIND_ADDR: &str = "0.0.0.0:3000";
 
 #[tokio::main]
-async fn main() {
-    let pool = SqlitePool::connect(DEFAULT_DATABASE_URL)
-        .await
-        .unwrap();
+async fn main() -> anyhow::Result<()> {
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string());
+    let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| DEFAULT_BIND_ADDR.to_string());
 
-    sqlx::migrate!().run(&pool).await.unwrap();   
+    let pool = db::connect(&database_url)
+        .await
+        .with_context(|| format!("failed to open database {database_url}"))?;
+
+    sqlx::migrate!()
+        .run(&pool)
+        .await
+        .context("failed to run migrations")?;
 
     let app: Router = Router::new()
-       .nest("/api/pizzas", pizza::routes())
-       .with_state(pool.clone());
+        .nest("/api/pizzas", pizza::routes())
+        .route("/api/health", get(health::health_check))
+        .with_state(pool.clone());
 
     // run our app with hyper, listening globally on port
-    let listener = tokio::net::TcpListener::bind(DEFAULT_BIND_ADDR).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(&bind_addr)
+        .await
+        .with_context(|| format!("failed to bind {bind_addr}"))?;
 
     println!("listening on {}", listener.local_addr().unwrap());
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
-        .unwrap();
+        .unwrap(); // TODO: ALso use anyhow?
 
     pool.close().await;
+
+    Ok(())
 }
 
 async fn shutdown_signal() {

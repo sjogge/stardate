@@ -1,8 +1,13 @@
-use serde::{Serialize, Deserialize};
-use sqlx::prelude::FromRow;
-use axum::{Json, Router, extract::{Path, State}, http::StatusCode, routing::get};
 use crate::error::AppError;
+use axum::{
+    Json, Router,
+    extract::{Path, State},
+    http::StatusCode,
+    routing::get,
+};
+use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use sqlx::prelude::FromRow;
 
 #[derive(Serialize, FromRow)]
 pub struct Pizza {
@@ -35,8 +40,14 @@ impl NewPizza {
 
 pub fn routes() -> Router<SqlitePool> {
     Router::new()
-        .route("/", get(get_pizzas).post(create_pizza).delete(delete_pizzas))
-        .route("/{id}", get(get_pizza).delete(delete_pizza).put(update_pizza))
+        .route(
+            "/",
+            get(get_pizzas).post(create_pizza).delete(delete_pizzas),
+        )
+        .route(
+            "/{id}",
+            get(get_pizza).delete(delete_pizza).put(update_pizza),
+        )
 }
 
 async fn get_pizza(
@@ -61,23 +72,21 @@ async fn delete_pizza(
         .await?;
 
     if result.rows_affected() == 0 {
-       return Err(AppError::NotFound);
-    } 
+        return Err(AppError::NotFound);
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn get_pizzas(State(pool): State<SqlitePool>) -> Result<Json<Vec<Pizza>>, AppError>  {
+async fn get_pizzas(State(pool): State<SqlitePool>) -> Result<Json<Vec<Pizza>>, AppError> {
     let pizzas = sqlx::query_as::<_, Pizza>("SELECT id, name, price FROM pizzas")
         .fetch_all(&pool)
         .await?;
 
     Ok(Json(pizzas))
 }
-    
+
 async fn delete_pizzas(State(pool): State<SqlitePool>) -> Result<StatusCode, AppError> {
-    sqlx::query("DELETE FROM pizzas")
-        .execute(&pool)
-        .await?;
+    sqlx::query("DELETE FROM pizzas").execute(&pool).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -86,7 +95,8 @@ async fn create_pizza(
     State(pool): State<SqlitePool>,
     Json(new): Json<NewPizza>,
 ) -> Result<(StatusCode, Json<Pizza>), AppError> {
-    new.validate().map_err(|msg| AppError::Validation(msg.to_string()))?;
+    new.validate()
+        .map_err(|msg| AppError::Validation(msg.to_string()))?;
 
     let pizza = sqlx::query_as::<_, Pizza>(
         "INSERT INTO pizzas (name, price) VALUES (?, ?) RETURNING id, name, price",
@@ -103,19 +113,18 @@ async fn update_pizza(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
     Json(new): Json<NewPizza>,
-) -> Result<Json<Pizza>, StatusCode> {
+) -> Result<Json<Pizza>, AppError> {
+    new.validate()
+        .map_err(|msg| AppError::Validation(msg.to_string()))?;
+
     sqlx::query_as::<_, Pizza>(
         "UPDATE pizzas SET name = ?, price = ? WHERE id = ? RETURNING id, name, price",
     )
-    .bind(new.name)
+    .bind(new.name.trim())
     .bind(new.price)
     .bind(id)
     .fetch_optional(&pool)
-    .await
-    .map_err(|e| {
-        eprintln!("Failed to update pizza: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?
+    .await?
     .map(Json)
-    .ok_or(StatusCode::NOT_FOUND)
+    .ok_or(AppError::NotFound)
 }
