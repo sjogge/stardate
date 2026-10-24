@@ -3,6 +3,7 @@ mod db;
 mod error;
 mod health;
 mod pizza;
+mod concurrency;
 
 use anyhow::Context;
 use axum::{Router, routing::get};

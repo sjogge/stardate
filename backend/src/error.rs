@@ -11,6 +11,12 @@ pub enum AppError {
     NotFound,
     Conflict(String),
     Unavailable,
+    // The If-Match version no longer matches: someone else changed the resource
+    #[expect(dead_code, reason = "returned by versioned updates from step 2")]
+    PreconditionFailed,
+    // A write that requires If-Match was sent without it
+    #[expect(dead_code, reason = "returned by the ExpectedVersion extractor from step 2")]
+    PreconditionRequired,
     Database(sqlx::Error),
 }
 
@@ -63,6 +69,14 @@ impl IntoResponse for AppError {
             AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg),
             AppError::NotFound => (StatusCode::NOT_FOUND, "Not Found".to_string()),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg),
+            AppError::PreconditionFailed => (
+                StatusCode::PRECONDITION_FAILED,
+                "Resource was modified by another request; reload and retry".to_string(),
+            ),
+            AppError::PreconditionRequired => (
+                StatusCode::PRECONDITION_REQUIRED,
+                "If-Match header is required".to_string(),
+            ),
             AppError::Unavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Service unavailable".to_string(),
