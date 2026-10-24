@@ -1,0 +1,17 @@
+services:
+  api:
+    build:
+      context: ./backend
+      target: final
+    ports:
+      - '3000:3000'
+    volumes:
+      - stardate-data:/data
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+
+volumes:
+  stardate-data:

@@ -5,15 +5,12 @@ use axum::Router;
 use sqlx::SqlitePool;
 use tokio::signal;
 
+const DEFAULT_DATABASE_URL: &str = "sqlite:stardate.db?mode=rwc";
+const DEFAULT_BIND_ADDR: &str = "0.0.0.0:3000";
+
 #[tokio::main]
 async fn main() {
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:stardate.db?mode=rwc".to_string());
-
-    let bind_addr = std::env::var("BIND_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:3000".to_string());
-
-    let pool = SqlitePool::connect(&database_url)
+    let pool = SqlitePool::connect(DEFAULT_DATABASE_URL)
         .await
         .unwrap();
 
@@ -21,10 +18,10 @@ async fn main() {
 
     let app: Router = Router::new()
        .nest("/api/pizzas", pizza::routes())
-       .with_state(pool);
+       .with_state(pool.clone());
 
-    // run our app with hyper, listening globally on port 3000
-    let listener = tokio::net::TcpListener::bind(&bind_addr).await.unwrap();
+    // run our app with hyper, listening globally on port
+    let listener = tokio::net::TcpListener::bind(DEFAULT_BIND_ADDR).await.unwrap();
 
     println!("listening on {}", listener.local_addr().unwrap());
 
@@ -33,12 +30,10 @@ async fn main() {
         .await
         .unwrap();
 
-    // TODO: How to close the pool? https://docs.rs/sqlx/latest/sqlx/struct.Pool.html?utm_source=chatgpt.com#method.close
-    // pool.close().await;
+    pool.close().await;
 }
 
 async fn shutdown_signal() {
-    // TODO: Is this correct?
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -61,3 +56,8 @@ async fn shutdown_signal() {
         _ = terminate => {},
     }
 }
+/*
+TODO: Improve error handling for startup steps.
+Optionally, turn .unwrap() into .expect("failed to connect to database") and similar for each startup step.
+ If the Pi fails to start, docker compose logs then tells you which step failed instead of only showing the error.
+*/
