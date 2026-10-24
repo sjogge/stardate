@@ -2,7 +2,7 @@ use axum::{extract::FromRequestParts, http::request::Parts};
 
 use crate::error::AppError;
 
-// Seeded by migration 0002. Replaced by the authenticated user once auth exists.
+// Seeded by migration 0001. Replaced by the authenticated user once auth exists.
 const DEFAULT_USER_ID: i64 = 1;
 
 /// The user making the request. Handlers scope all queries by this id, so adding

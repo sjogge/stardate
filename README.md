@@ -2,7 +2,8 @@
 
 A small self-hosted web app for tracking worked time: clock in and out, record
 lunch and breaks, compare against a work schedule (e.g. 9 h/day with 1 h lunch
-and 30 min breaks), and register time for past days. Supports multiple jobs.
+and 30 min breaks), and register time for past days. Supports multiple jobs and
+keeps a flex balance.
 
 Runs as a single Docker container on a Raspberry Pi, so the footprint is kept
 small: one Rust binary with SQLite compiled in.
@@ -11,20 +12,25 @@ small: one Rust binary with SQLite compiled in.
 
 ## Status
 
-| Area                                                                                              | State                                                                      |
-| ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Backend infrastructure (config, DB, migrations, logging, errors, health check, graceful shutdown) | Done                                                                       |
-| Docker image + Compose                                                                            | Done                                                                       |
-| Data model (jobs, schedules, time entries)                                                        | Next. `pizza` was a placeholder resource used to set up the infrastructure |
-| Frontend (Svelte)                                                                                 | Not started                                                                |
-| Tests                                                                                             | Later                                                                      |
-| Authentication                                                                                    | Later. **Do not expose beyond the LAN until then**                         |
+| Area                                                                                              | State                                              |
+| ------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Backend infrastructure (config, DB, migrations, logging, errors, health check, graceful shutdown) | Done                                               |
+| Docker image + Compose                                                                            | Done                                               |
+| Data model and schema                                                                             | Done (`0001_time_tracking.sql`)                    |
+| API: jobs                                                                                         | Done                                               |
+| API: schedules, days, clock-in/out, pauses, summary, flex, status                                 | In progress                                        |
+| Frontend (Svelte)                                                                                 | Not started                                        |
+| Tests                                                                                             | Later                                              |
+| Authentication                                                                                    | Later. **Do not expose beyond the LAN until then** |
+
+The domain model, rules and full API are specified in
+[`docs/time-tracking.md`](docs/time-tracking.md).
 
 ## Tech stack
 
-- **Backend:** Rust, axum, sqlx (SQLite), tokio, tracing, anyhow
+- **Backend:** Rust, axum, sqlx (SQLite), tokio, time, tracing, anyhow
 - **Database:** SQLite (bundled into the binary, file stored in a Docker volume)
-- **Frontend:** Svelte + Vite (planned)
+- **Frontend:** Svelte + Vite (planned), served as static files by axum
 - **Runtime:** Docker on a Raspberry Pi (arm64)
 
 ## Project structure
@@ -42,14 +48,20 @@ stardate/
 │       ├── config.rs        # configuration from environment variables
 │       ├── db.rs            # SQLite connection pool and pragmas
 │       ├── error.rs         # AppError -> HTTP response mapping
+│       ├── auth.rs          # CurrentUser extractor (seeded user until auth exists)
+│       ├── concurrency.rs   # If-Match extractor and ETag responses
 │       ├── health.rs        # GET /api/health
+│       └── jobs.rs          # jobs API
+├── docs/
+│   └── time-tracking.md     # domain and API specification
 ├── compose.yaml
+├── CLAUDE.md                # instructions for Claude Code
 └── README.md
 ```
 
-Planned additions: `models/` and `routes/` for jobs, schedules and entries;
-`auth.rs`; a `frontend/` folder whose build is served by axum from the same
-container.
+Planned additions: modules for schedules, days, flex and status; a pure
+calculation module; a `frontend/` folder whose build is served by axum from the
+same container.
 
 ## Configuration
 
@@ -72,6 +84,14 @@ PowerShell: `$env:DATABASE_URL="sqlite:stardate.db"; cargo run`
 
 The database file is created on first start, and migrations run automatically.
 
+Before committing, from `backend/`:
+
+```sh
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo build
+```
+
 ## Run with Docker
 
 ```sh
@@ -93,19 +113,45 @@ docker compose cp api:/data/stardate.db ./copy.db   # copy the DB out (stop firs
 
 ## API
 
-| Method | Path          | Description                         |
-| ------ | ------------- | ----------------------------------- |
-| GET    | `/api/health` | 200 if the app and database respond |
+All routes are under `/api`, and JSON uses `camelCase`. Instants are RFC 3339 in
+UTC; dates are `YYYY-MM-DD`.
+
+### Implemented
+
+| Method | Path                     | Description                                     |
+| ------ | ------------------------ | ----------------------------------------------- |
+| GET    | `/api/health`            | 200 if the app and database respond             |
+| GET    | `/api/jobs`              | List jobs, active first, then archived          |
+| POST   | `/api/jobs`              | Create a job: `{ "name": "..." }`               |
+| GET    | `/api/jobs/{id}`         | Get a job                                       |
+| PUT    | `/api/jobs/{id}`         | Rename a job (requires `If-Match`)              |
+| POST   | `/api/jobs/{id}/archive` | Archive a job, keeping its history (idempotent) |
+
+### Planned
+
+Schedules, days, clock-in/out, pauses, summary, flex balance and adjustments, and
+status. See the API section of [`docs/time-tracking.md`](docs/time-tracking.md).
+
+### Optimistic concurrency
+
+Versioned resources return their version in the body (`version`) and in an
+`ETag: "<version>"` header. Updates must send it back as `If-Match: "<version>"`.
+If someone else changed the resource in the meantime, the update fails with 412,
+and the client reloads and retries.
+
+### Errors
 
 Errors are returned as JSON `{ "message": "..." }`:
 
-| Status | When                                                             |
-| ------ | ---------------------------------------------------------------- |
-| 400    | Validation failed, or a CHECK / NOT NULL constraint was violated |
-| 404    | Resource not found                                               |
-| 409    | Unique or foreign key constraint violated                        |
-| 503    | Database busy/locked or connection pool exhausted (retry later)  |
-| 500    | Unexpected database error (details only in the server log)       |
+| Status | When                                                                                      |
+| ------ | ----------------------------------------------------------------------------------------- |
+| 400    | Validation failed, a CHECK / NOT NULL constraint was violated, or `If-Match` is malformed |
+| 404    | Resource not found                                                                        |
+| 409    | Unique or foreign key constraint violated (e.g. duplicate job name)                       |
+| 412    | `If-Match` version is out of date: the resource was modified by another request           |
+| 428    | `If-Match` header is missing on an update that requires it                                |
+| 503    | Database connection pool exhausted (retry later)                                          |
+| 500    | Unexpected database error (details only in the server log)                                |
 
 ## Deploy to the Raspberry Pi
 
@@ -119,6 +165,10 @@ sudo systemctl restart systemd-binfmt
 docker buildx ls        # linux/arm64 should be listed
 ```
 
+The commands below assume `compose.yaml` names the image
+(`image: stardate-api:latest` under the `api` service) and that `pi` is an SSH
+host alias.
+
 Build and ship:
 
 ```sh
@@ -130,8 +180,14 @@ ssh pi 'cd ~/stardate && docker compose up -d'
 
 ## Roadmap
 
-- [ ] Data model: jobs, versioned schedules, time entries (work/lunch/break), stored in UTC
+- [x] Data model: jobs, versioned schedules, work days, pauses, flex adjustments (UTC instants)
 - [x] Replace the `pizza` placeholder and its migration
+- [x] Jobs API with optimistic concurrency
+- [ ] JSON error bodies for rejected requests (bad JSON, bad path values)
+- [ ] Schedules API
+- [ ] Calculation module (worked time, balance, leave-at)
+- [ ] Days API, clock-in/out and pauses
+- [ ] Summary, flex balance, flex adjustments and status
 - [ ] Tests
 - [ ] Svelte frontend, served by axum
 - [ ] Authentication

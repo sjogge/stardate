@@ -24,7 +24,7 @@
 
 ## Data model
 
-Migration `0002_time_tracking.sql`:
+Migration `0001_time_tracking.sql`:
 
 ```sql
 CREATE TABLE users (
@@ -223,24 +223,24 @@ Forgotten days can be registered later.
 
 All routes under `/api`, JSON in `camelCase`, errors as `{"message": "..."}`.
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET, POST | `/jobs` | List / create jobs |
-| GET, PUT | `/jobs/{id}` | Get / rename |
-| POST | `/jobs/{id}/archive` | Archive (history kept) |
-| GET, POST | `/jobs/{id}/schedules` | List / create schedule versions (with weekday rows) |
-| GET, PUT, DELETE | `/jobs/{id}/schedules/{scheduleId}` | Get / edit / delete a version |
-| GET | `/jobs/{id}/days?from=&to=` | Days in a date range, with totals |
-| GET, PUT, DELETE | `/jobs/{id}/days/{date}` | Get / create or replace / delete a day |
-| POST | `/jobs/{id}/clock-in` | `{ workDate, at? }` creates the day with snapshot, opens it |
-| POST | `/jobs/{id}/clock-out` | `{ at? }` closes the open day |
-| POST | `/jobs/{id}/pauses/start` | `{ kind, at? }` on the open day |
-| POST | `/jobs/{id}/pauses/end` | `{ at? }` ends the running pause |
-| GET | `/jobs/{id}/summary?from=&to=` | Per-day totals and range totals |
-| GET | `/jobs/{id}/flex` | Total flex balance |
-| GET, POST | `/jobs/{id}/flex-adjustments` | List / add adjustments |
-| PUT, DELETE | `/jobs/{id}/flex-adjustments/{adjustmentId}` | Edit / delete |
-| GET | `/status` | Per active job: clocked in, start, running pause, worked so far, today's balance, `leaveAt`, total flex |
+| Method           | Path                                         | Purpose                                                                                                 |
+| ---------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| GET, POST        | `/jobs`                                      | List / create jobs                                                                                      |
+| GET, PUT         | `/jobs/{id}`                                 | Get / rename                                                                                            |
+| POST             | `/jobs/{id}/archive`                         | Archive (history kept)                                                                                  |
+| GET, POST        | `/jobs/{id}/schedules`                       | List / create schedule versions (with weekday rows)                                                     |
+| GET, PUT, DELETE | `/jobs/{id}/schedules/{scheduleId}`          | Get / edit / delete a version                                                                           |
+| GET              | `/jobs/{id}/days?from=&to=`                  | Days in a date range, with totals                                                                       |
+| GET, PUT, DELETE | `/jobs/{id}/days/{date}`                     | Get / create or replace / delete a day                                                                  |
+| POST             | `/jobs/{id}/clock-in`                        | `{ workDate, at? }` creates the day with snapshot, opens it                                             |
+| POST             | `/jobs/{id}/clock-out`                       | `{ at? }` closes the open day                                                                           |
+| POST             | `/jobs/{id}/pauses/start`                    | `{ kind, at? }` on the open day                                                                         |
+| POST             | `/jobs/{id}/pauses/end`                      | `{ at? }` ends the running pause                                                                        |
+| GET              | `/jobs/{id}/summary?from=&to=`               | Per-day totals and range totals                                                                         |
+| GET              | `/jobs/{id}/flex`                            | Total flex balance                                                                                      |
+| GET, POST        | `/jobs/{id}/flex-adjustments`                | List / add adjustments                                                                                  |
+| PUT, DELETE      | `/jobs/{id}/flex-adjustments/{adjustmentId}` | Edit / delete                                                                                           |
+| GET              | `/status`                                    | Per active job: clocked in, start, running pause, worked so far, today's balance, `leaveAt`, total flex |
 
 `at` defaults to the server's current time.
 
@@ -288,10 +288,10 @@ per kind, `allowanceMinutes`, `workedMinutes`, `expectedWorkMinutes`, `balanceMi
 One commit per step, each building and passing clippy:
 
 1. Concurrency building blocks (extractor, ETag helper, new error variants).
-2. Migration `0002_time_tracking.sql`; jobs CRUD and archive.
+2. Migration `0001_time_tracking.sql`; jobs CRUD and archive.
 3. Schedules with weekday rows.
 4. Pure calculation module (worked time, balance, leave-at).
 5. Days: GET list/single, PUT, DELETE, including snapshot handling.
 6. Live actions: clock-in/out, pause start/end.
 7. Summary, flex balance, flex adjustments, status.
-8. Remove the pizza example (delete module, migration dropping the table).
+
