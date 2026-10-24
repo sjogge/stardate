@@ -18,5 +18,5 @@ impl Config {
 }
 
 fn required_env(name: &str) -> anyhow::Result<String> {
-    std::env::var(name).with_context(|| format!("environment variable {name} must be set"))
+    env::var(name).with_context(|| format!("environment variable {name} must be set"))
 }

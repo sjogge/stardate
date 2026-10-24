@@ -1,15 +1,15 @@
+mod config;
 mod db;
 mod error;
 mod health;
 mod pizza;
-mod config;
 
-use anyhow::{Context};
+use anyhow::Context;
 use axum::{Router, routing::get};
+use std::io::IsTerminal;
 use tokio::signal;
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
-use std::io::IsTerminal;
 use tracing_subscriber::EnvFilter;
 
 const DEFAULT_LOG_FILTER: &str = "stardate=info,tower_http=info";
@@ -43,13 +43,12 @@ async fn main() -> anyhow::Result<()> {
         .await
         .with_context(|| format!("failed to bind {}", config.bind_addr))?;
 
-    println!("listening on {}", listener.local_addr()?);
-    tracing::info!(addr = %listener.local_addr()?, "listening");    
+    tracing::info!(addr = %listener.local_addr()?, "listening");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
-        .with_context(|| "failed to start server")?;
+        .context("server error")?;
 
     pool.close().await;
 
@@ -57,8 +56,6 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn shutdown_signal() {
-    tracing::info!("shutting down");
-
     let ctrl_c = async {
         signal::ctrl_c()
             .await
@@ -77,8 +74,8 @@ async fn shutdown_signal() {
     let terminate = std::future::pending::<()>();
 
     tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
+        _ = ctrl_c => tracing::info!("received Ctrl+C, shutting down"),
+        _ = terminate => tracing::info!("received SIGTERM, shutting down"),
     }
 }
 
