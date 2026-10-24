@@ -33,7 +33,7 @@ impl IntoResponse for AppError {
             AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg),
             AppError::NotFound => (StatusCode::NOT_FOUND, "Not Found".to_string()),
             AppError::Database(err) => {
-                eprintln!("Database error: {}", err);
+                tracing::error!(error = %err, "database error");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Database error".to_string(),

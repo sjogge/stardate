@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1 
+
 # Pin the Rust toolchain version used in the build stage.
 ARG RUST_VERSION=1.99.0
 
@@ -19,7 +21,6 @@ WORKDIR /app
 
 # Install build dependencies needed to compile Rust crates on Alpine
 # clang + musl-dev: sqlx compiles SQLite's C source into the binary
-# RUN apk add --no-cache clang lld musl-dev git
 RUN apk add --no-cache musl-dev
 
 # Build the application

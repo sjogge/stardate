@@ -20,6 +20,15 @@ services:
       interval: 1m
       timeout: 3s
       retries: 3
+    environment:
+      DATABASE_URL: sqlite:///data/stardate.db
+      BIND_ADDR: 0.0.0.0:3000
+      RUST_LOG: stardate=info,tower_http=info
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '3'
 
 volumes:
   stardate-data:
