@@ -18,10 +18,14 @@ ARG APP_NAME
 WORKDIR /app
 
 # Install build dependencies needed to compile Rust crates on Alpine
+# clang + musl-dev: sqlx compiles SQLite's C source into the binary
 RUN apk add --no-cache clang lld musl-dev git
 
 # Build the application
+# Migrations and build.rs are needed at compile time (migrate!() embeds the SQL)
 RUN --mount=type=bind,source=src,target=src \
+    --mount=type=bind,source=migrations,target=migrations \
+    --mount=type=bind,source=build.rs,target=build.rs \
     --mount=type=bind,source=Cargo.toml,target=Cargo.toml \
     --mount=type=bind,source=Cargo.lock,target=Cargo.lock \
     --mount=type=cache,target=/app/target/ \
@@ -34,7 +38,7 @@ RUN --mount=type=bind,source=src,target=src \
 # This stage runs the already-compiled binary with minimal dependencies.
 ################################################################################
 
-FROM docker.io/library/alpine:3.18 AS final
+FROM docker.io/library/alpine:3.22 AS final
 
 # Create a non-privileged user (recommended best practice)
 ARG UID=10001
@@ -47,17 +51,21 @@ RUN adduser \
     --uid "${UID}" \
     appuser
 
+# Must happen as root, before USER. A named volume inherits this ownership.
+RUN mkdir /data && chown appuser:appuser /data
+
 # Drop privileges for runtime.
 USER appuser
+WORKDIR /data
 
 # Copy only the compiled binary from the build stage.
 COPY --from=build /bin/server /bin/
 
-# Rocket: listen on all interfaces inside the container.
-ENV ROCKET_ADDRESS=0.0.0.0
+ENV DATABASE_URL=sqlite:///data/stardate.db?mode=rwc
+ENV BIND_ADDR=0.0.0.0:3000
 
-# Document the port your app listens on.
-EXPOSE 8000
+EXPOSE 3000
+VOLUME /data
 
-# Start the application.
+# Start the application
 CMD ["/bin/server"]
