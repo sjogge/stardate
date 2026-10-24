@@ -31,12 +31,14 @@ async fn main() -> anyhow::Result<()> {
 
     let app: Router = Router::new()
         .nest("/api/pizzas", pizza::routes())
-        .route("/api/health", get(health::health_check))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
                 .on_response(DefaultOnResponse::new().level(Level::INFO)),
         )
+        // .layer() only wraps the routes that were added before it.
+        //  At this place we reduce log spam by successfully  health checks.
+        .route("/api/health", get(health::health_check))
         .with_state(pool.clone());
 
     let listener = tokio::net::TcpListener::bind(&config.bind_addr)

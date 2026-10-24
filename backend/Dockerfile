@@ -20,7 +20,6 @@ ARG APP_NAME
 WORKDIR /app
 
 # Install build dependencies needed to compile Rust crates on Alpine
-# clang + musl-dev: sqlx compiles SQLite's C source into the binary
 RUN apk add --no-cache musl-dev
 
 # Build the application
