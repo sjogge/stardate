@@ -23,3 +23,8 @@ impl<T: Serialize> IntoResponse for AppJson<T> {
 #[derive(FromRequestParts)]
 #[from_request(via(axum::extract::Path), rejection(AppError))]
 pub struct AppPath<T>(pub T);
+
+/// `axum::extract::Query`, with an invalid query string (e.g. `?from=abc`) as an `AppError`.
+#[derive(FromRequestParts)]
+#[from_request(via(axum::extract::Query), rejection(AppError))]
+pub struct AppQuery<T>(pub T);

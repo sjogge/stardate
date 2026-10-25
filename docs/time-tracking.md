@@ -19,7 +19,8 @@
 - The server is timezone-agnostic. The client sends the local work date when clocking in or
   registering a day, and formats instants in local time for display.
 - Weekdays are derived from the work date (ISO 8601, 1 = Monday). No timezone is needed for that.
-- Durations are computed in seconds and exposed in the API as whole minutes (rounded to nearest).
+- Durations are computed in seconds and exposed in the API as whole minutes (rounded to nearest,
+  halves away from zero).
   Sum seconds first, convert last, so totals do not drift.
 
 ## Data model
@@ -263,8 +264,38 @@ If-None-Match: *
 }
 ```
 
-Day responses include the stored data plus computed values: `presenceMinutes`, actual pause minutes
-per kind, `allowanceMinutes`, `workedMinutes`, `expectedWorkMinutes`, `balanceMinutes`, and `version`.
+`PUT /jobs/{id}/days/{date}` details:
+
+- `kind` is `work` (needs `startedAt`; `endedAt` may be omitted for an open day) or `flex` (no times,
+  no pauses).
+- Each pause has `kind` (`lunch`, `break`, `other`) and either `startedAt` (plus `endedAt` once
+  finished) or `minutes`. Only an open day can have a running pause.
+- `expected` overrides individual snapshot values (`workMinutes`, `lunchMinutes`, `breakMinutes`,
+  `lunchPaid`, `breaksPaid`) on create or replace. `refreshExpected: true` re-takes the snapshot on
+  replace. Sending both is a 400.
+- Only one open work day per job: a second open day is a 409.
+
+`GET /jobs/{id}/days?from=&to=` takes inclusive dates and covers at most 366 days.
+
+A day response contains the stored data, the snapshot and the computed values, in whole minutes:
+
+```json
+{
+  "id": 5, "workDate": "2026-10-23", "kind": "work",
+  "startedAt": "2026-10-23T06:00:00Z", "endedAt": "2026-10-23T15:00:00Z",
+  "note": "Forgot to clock in", "scheduleId": 3,
+  "expected": { "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30,
+                "lunchPaid": false, "breaksPaid": true },
+  "pauses": [ { "id": 9, "kind": "lunch", "startedAt": null, "endedAt": null, "minutes": 60 } ],
+  "totals": { "presenceMinutes": 540, "lunchMinutes": 60, "breakMinutes": 15, "otherMinutes": 0,
+              "allowanceMinutes": 30, "workedMinutes": 495, "expectedWorkMinutes": 480,
+              "balanceMinutes": 15, "leaveAt": null },
+  "version": 1, "createdAt": "...", "updatedAt": "..."
+}
+```
+
+`totals.lunchMinutes` and `totals.breakMinutes` are the actual minutes, defaulting to the expected
+ones when none were logged. `leaveAt` is set only while the day is open.
 
 ## Optimistic concurrency
 
@@ -295,9 +326,8 @@ per kind, `allowanceMinutes`, `workedMinutes`, `expectedWorkMinutes`, `balanceMi
 - Multi-statement writes run in a transaction started with `BEGIN IMMEDIATE` (`db::begin_write`),
   never `pool.begin()`. The write lock is held from the start, so reads inside the transaction cannot
   go stale (`SQLITE_BUSY_SNAPSHOT`). Roll back if the first write affects no rows.
-- Creating a work day takes the schedule snapshot in the same statement as the insert
-  (`INSERT ... SELECT` joining the schedule valid on that date and its weekday row), so the day can
-  never be created from a half-edited schedule.
+- The schedule snapshot (on create and on `refreshExpected`) is taken inside the day's write
+  transaction (`db::begin_write`), so it can never mix values from a half-edited schedule.
 
 ## Suggested implementation order
 

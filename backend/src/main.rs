@@ -1,6 +1,8 @@
 mod auth;
+mod calc;
 mod concurrency;
 mod config;
+mod days;
 mod db;
 mod error;
 mod extract;
@@ -36,6 +38,7 @@ async fn main() -> anyhow::Result<()> {
     let app: Router = Router::new()
         .nest("/api/jobs", jobs::routes())
         .nest("/api/jobs/{job_id}/schedules", schedules::routes())
+        .nest("/api/jobs/{job_id}/days", days::routes())
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))

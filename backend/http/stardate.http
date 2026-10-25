@@ -19,8 +19,7 @@ Content-Type: {{jsonType}}
 }
 
 ###
-@jobId = 1 
-#{{createJob.response.body.$.id}}
+@jobId = {{createJob.response.body.$.id}}
 
 ### List jobs (active first, then archived)
 GET {{baseUrl}}/jobs
@@ -89,16 +88,94 @@ If-Match: {{getSchedule.response.headers.ETag}}
 DELETE {{baseUrl}}/jobs/{{jobId}}/schedules/{{scheduleId}}
 If-Match: {{updateSchedule.response.headers.ETag}}
 
-### Archive job (idempotent: a second call returns it unchanged)
-POST {{baseUrl}}/jobs/{{jobId}}/archive
+### ---------- Days ----------
+# A separate job keeps these experiments away from the seeded one.
 
-### Delete job (archived jobs only; deletes all its data)
-# @name getArchivedJob
-GET {{baseUrl}}/jobs/{{jobId}}
+# @name dayJob
+POST {{baseUrl}}/jobs
+Content-Type: {{jsonType}}
+
+{
+  "name": "Day experiments"
+}
 
 ###
-DELETE {{baseUrl}}/jobs/{{jobId}}
-If-Match: {{getArchivedJob.response.headers.ETag}}
+@dayJobId = {{dayJob.response.body.$.id}}
+
+### Create a day (create-only: 412 if it already exists)
+# @name createDay
+PUT {{baseUrl}}/jobs/{{dayJobId}}/days/2026-10-23
+Content-Type: {{jsonType}}
+If-None-Match: *
+
+{
+  "kind": "work",
+  "startedAt": "2026-10-23T08:00:00+02:00",
+  "endedAt": "2026-10-23T17:00:00+02:00",
+  "pauses": [
+    { "kind": "lunch", "minutes": 60 },
+    { "kind": "break", "startedAt": "2026-10-23T10:00:00+02:00", "endedAt": "2026-10-23T10:15:00+02:00" }
+  ],
+  "note": "Forgot to clock in"
+}
+
+### Get the day (stored data, snapshot and computed totals)
+GET {{baseUrl}}/jobs/{{dayJobId}}/days/2026-10-23
+
+### Replace the day: times, pauses and note change; the snapshot is kept
+# @name replaceDay
+PUT {{baseUrl}}/jobs/{{dayJobId}}/days/2026-10-23
+Content-Type: {{jsonType}}
+If-Match: {{createDay.response.headers.ETag}}
+
+{
+  "kind": "work",
+  "startedAt": "2026-10-23T08:00:00+02:00",
+  "endedAt": "2026-10-23T16:30:00+02:00",
+  "pauses": [
+    { "kind": "lunch", "minutes": 45 }
+  ],
+  "note": "Corrected end time"
+}
+
+### Override part of the snapshot (here: a shorter expected day)
+# @name overrideDay
+PUT {{baseUrl}}/jobs/{{dayJobId}}/days/2026-10-23
+Content-Type: {{jsonType}}
+If-Match: {{replaceDay.response.headers.ETag}}
+
+{
+  "kind": "work",
+  "startedAt": "2026-10-23T08:00:00+02:00",
+  "endedAt": "2026-10-23T16:30:00+02:00",
+  "pauses": [
+    { "kind": "lunch", "minutes": 45 }
+  ],
+  "expected": { "workMinutes": 420 }
+}
+
+### Re-take the snapshot from the schedule valid on that date
+# @name refreshDay
+PUT {{baseUrl}}/jobs/{{dayJobId}}/days/2026-10-23
+Content-Type: {{jsonType}}
+If-Match: {{overrideDay.response.headers.ETag}}
+
+{
+  "kind": "work",
+  "startedAt": "2026-10-23T08:00:00+02:00",
+  "endedAt": "2026-10-23T16:30:00+02:00",
+  "pauses": [
+    { "kind": "lunch", "minutes": 45 }
+  ],
+  "refreshExpected": true
+}
+
+### List days in a range (at most 366 days)
+GET {{baseUrl}}/jobs/{{dayJobId}}/days?from=2026-10-01&to=2026-10-31
+
+### Delete the day (its pauses go with it)
+DELETE {{baseUrl}}/jobs/{{dayJobId}}/days/2026-10-23
+If-Match: {{refreshDay.response.headers.ETag}}
 
 ### ---------- Expected errors ----------
 
@@ -182,6 +259,54 @@ Content-Type: {{jsonType}}
   ]
 }
 
+### 400: overlapping pauses
+PUT {{baseUrl}}/jobs/{{dayJobId}}/days/2026-10-20
+Content-Type: {{jsonType}}
+If-None-Match: *
+
+{
+  "kind": "work",
+  "startedAt": "2026-10-20T08:00:00+02:00",
+  "endedAt": "2026-10-20T17:00:00+02:00",
+  "pauses": [
+    { "kind": "break", "startedAt": "2026-10-20T10:00:00+02:00", "endedAt": "2026-10-20T10:30:00+02:00" },
+    { "kind": "break", "startedAt": "2026-10-20T10:15:00+02:00", "endedAt": "2026-10-20T10:45:00+02:00" }
+  ]
+}
+
+### 400: flex day on a day without expected work (Saturday)
+PUT {{baseUrl}}/jobs/{{dayJobId}}/days/2026-10-24
+Content-Type: {{jsonType}}
+If-None-Match: *
+
+{
+  "kind": "flex"
+}
+
+### 428: day PUT without If-Match or If-None-Match
+PUT {{baseUrl}}/jobs/{{dayJobId}}/days/2026-10-20
+Content-Type: {{jsonType}}
+
+{
+  "kind": "flex"
+}
+
+### 400: range with to before from
+GET {{baseUrl}}/jobs/{{dayJobId}}/days?from=2026-10-31&to=2026-10-01
+
+### ---------- Clean up ----------
+
+### Archive job (idempotent: a second call returns it unchanged)
+POST {{baseUrl}}/jobs/{{jobId}}/archive
+
+### Delete job (archived jobs only; deletes all its data)
+# @name getArchivedJob
+GET {{baseUrl}}/jobs/{{jobId}}
+
+###
+DELETE {{baseUrl}}/jobs/{{jobId}}
+If-Match: {{getArchivedJob.response.headers.ETag}}
+
 # ---------- Not implemented yet ----------
-# Days, clock-in/out, pauses, summary, flex and status are added here as each
-# step lands, with request bodies matching the implementation.
+# Clock-in/out, pauses, summary, flex and status are added here as each step
+# lands, with request bodies matching the implementation.

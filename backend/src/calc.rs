@@ -1,5 +1,3 @@
-#![expect(dead_code, reason = "used by the days module from step 5")]
-
 //! Worked time, balance and leave-at for one day, as specified in docs/time-tracking.md.
 //! Pure: no database, no clock. `now` is passed in, so the same input always gives
 //! the same result.

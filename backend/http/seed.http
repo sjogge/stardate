@@ -75,17 +75,108 @@ Content-Type: {{jsonType}}
   ]
 }
 
-### 5. Check the result: one job, three schedule versions ordered by validFrom
+### 5. Register a week of past days (local time +02:00; the server stores UTC)
+# Monday: nothing logged, so lunch and breaks default to the schedule: balance 0
+# @name dayMonday
+PUT {{baseUrl}}/jobs/{{jobId}}/days/2026-10-19
+Content-Type: {{jsonType}}
+If-None-Match: *
+
+{
+  "kind": "work",
+  "startedAt": "2026-10-19T08:00:00+02:00",
+  "endedAt": "2026-10-19T17:00:00+02:00"
+}
+
+### Tuesday: timed lunch, two short breaks (paid breaks count in full), left 15 min early: balance -5
+PUT {{baseUrl}}/jobs/{{jobId}}/days/2026-10-20
+Content-Type: {{jsonType}}
+If-None-Match: *
+
+{
+  "kind": "work",
+  "startedAt": "2026-10-20T08:00:00+02:00",
+  "endedAt": "2026-10-20T16:45:00+02:00",
+  "pauses": [
+    { "kind": "break", "startedAt": "2026-10-20T10:00:00+02:00", "endedAt": "2026-10-20T10:10:00+02:00" },
+    { "kind": "lunch", "startedAt": "2026-10-20T12:00:00+02:00", "endedAt": "2026-10-20T13:00:00+02:00" },
+    { "kind": "break", "startedAt": "2026-10-20T15:00:00+02:00", "endedAt": "2026-10-20T15:10:00+02:00" }
+  ]
+}
+
+### Wednesday: dentist (an unpaid "other" pause), stayed later to make up for it: balance 0
+PUT {{baseUrl}}/jobs/{{jobId}}/days/2026-10-21
+Content-Type: {{jsonType}}
+If-None-Match: *
+
+{
+  "kind": "work",
+  "startedAt": "2026-10-21T08:00:00+02:00",
+  "endedAt": "2026-10-21T18:30:00+02:00",
+  "pauses": [
+    { "kind": "other", "startedAt": "2026-10-21T14:00:00+02:00", "endedAt": "2026-10-21T15:30:00+02:00" }
+  ],
+  "note": "Dentist"
+}
+
+### Thursday: long day with a short lunch: balance +90
+PUT {{baseUrl}}/jobs/{{jobId}}/days/2026-10-22
+Content-Type: {{jsonType}}
+If-None-Match: *
+
+{
+  "kind": "work",
+  "startedAt": "2026-10-22T07:30:00+02:00",
+  "endedAt": "2026-10-22T17:30:00+02:00",
+  "pauses": [
+    { "kind": "lunch", "minutes": 30 }
+  ]
+}
+
+### Friday: the spec example: balance +15
+PUT {{baseUrl}}/jobs/{{jobId}}/days/2026-10-23
+Content-Type: {{jsonType}}
+If-None-Match: *
+
+{
+  "kind": "work",
+  "startedAt": "2026-10-23T08:00:00+02:00",
+  "endedAt": "2026-10-23T17:00:00+02:00",
+  "pauses": [
+    { "kind": "lunch", "minutes": 60 },
+    { "kind": "break", "startedAt": "2026-10-23T10:00:00+02:00", "endedAt": "2026-10-23T10:15:00+02:00" }
+  ],
+  "note": "Forgot to clock in"
+}
+
+### A summer Friday: the snapshot comes from the summer schedule (5 h): balance 0
+PUT {{baseUrl}}/jobs/{{jobId}}/days/2026-07-03
+Content-Type: {{jsonType}}
+If-None-Match: *
+
+{
+  "kind": "work",
+  "startedAt": "2026-07-03T08:00:00+02:00",
+  "endedAt": "2026-07-03T13:00:00+02:00"
+}
+
+### A flex day off: balance -480
+PUT {{baseUrl}}/jobs/{{jobId}}/days/2026-10-16
+Content-Type: {{jsonType}}
+If-None-Match: *
+
+{
+  "kind": "flex"
+}
+
+### 6. Check the result: the job, its schedule versions and the registered days
 GET {{baseUrl}}/jobs/{{jobId}}
-
-### 5b. Hardcoded job ID for testing
-GET {{baseUrl}}/jobs/1/schedules
-
-### 5c. Get a schedule by ID
-GET {{baseUrl}}/jobs/1/schedules/3
 
 ###
 GET {{baseUrl}}/jobs/{{jobId}}/schedules
 
-# Registered days, flex adjustments and a live clock-in are added here once the
-# days API (step 5) and flex API (step 7) exist.
+###
+GET {{baseUrl}}/jobs/{{jobId}}/days?from=2026-07-01&to=2026-10-31
+
+# Flex adjustments and a live clock-in are added here once the live actions (step 6)
+# and flex API (step 7) exist.

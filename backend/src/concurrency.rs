@@ -54,3 +54,34 @@ impl<T: Versioned + Serialize> IntoResponse for Tagged<T> {
         ([(header::ETAG, etag)], Json(self.0)).into_response()
     }
 }
+
+/// The precondition of a create-or-replace `PUT`: `If-Match: "<version>"` replaces an
+/// existing resource, `If-None-Match: *` creates one that must not exist yet.
+/// Requests without either are rejected (428), so a client cannot overwrite by accident.
+pub enum WritePrecondition {
+    Replace(i64),
+    CreateOnly,
+}
+
+impl<S: Send + Sync> FromRequestParts<S> for WritePrecondition {
+    type Rejection = AppError;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let if_match = parts.headers.get(header::IF_MATCH);
+        let if_none_match = parts.headers.get(header::IF_NONE_MATCH);
+
+        match (if_match, if_none_match) {
+            (Some(_), Some(_)) => Err(AppError::Validation(
+                "send either If-Match or If-None-Match, not both".into(),
+            )),
+            (Some(value), None) => parse_etag(value)
+                .map(WritePrecondition::Replace)
+                .ok_or_else(|| {
+                    AppError::Validation("If-Match must be a quoted version, e.g. \"3\"".into())
+                }),
+            (None, Some(value)) if value == "*" => Ok(WritePrecondition::CreateOnly),
+            (None, Some(_)) => Err(AppError::Validation("If-None-Match only supports *".into())),
+            (None, None) => Err(AppError::PreconditionRequired),
+        }
+    }
+}

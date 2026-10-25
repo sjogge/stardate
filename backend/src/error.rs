@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::rejection::{JsonRejection, PathRejection},
+    extract::rejection::{JsonRejection, PathRejection, QueryRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -68,6 +68,12 @@ impl From<JsonRejection> for AppError {
 
 impl From<PathRejection> for AppError {
     fn from(rejection: PathRejection) -> Self {
+        AppError::Rejected(rejection.status(), rejection.body_text())
+    }
+}
+
+impl From<QueryRejection> for AppError {
+    fn from(rejection: QueryRejection) -> Self {
         AppError::Rejected(rejection.status(), rejection.body_text())
     }
 }
