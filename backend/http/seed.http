@@ -186,4 +186,21 @@ Content-Type: {{jsonType}}
   "workDate": "{{$localDatetime 'YYYY-MM-DD'}}"
 }
 
-# Flex adjustments are added here once the flex API (step 7) exists.
+### 8. A flex adjustment: two hours carried over from the old system
+POST {{baseUrl}}/jobs/{{jobId}}/flex-adjustments
+Content-Type: {{jsonType}}
+
+{
+  "adjustedOn": "2026-10-01",
+  "minutes": 120,
+  "note": "Carried over from the old system"
+}
+
+### 9. The resulting flex balance and an October summary
+GET {{baseUrl}}/jobs/{{jobId}}/flex
+
+###
+GET {{baseUrl}}/jobs/{{jobId}}/summary?from=2026-10-01&to=2026-10-31
+
+### 10. The start screen: every active job, with today's day
+GET {{baseUrl}}/status?date={{$localDatetime 'YYYY-MM-DD'}}

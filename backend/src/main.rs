@@ -6,10 +6,13 @@ mod days;
 mod db;
 mod error;
 mod extract;
+mod flex;
 mod health;
 mod jobs;
 mod live;
 mod schedules;
+mod status;
+mod summary;
 
 use anyhow::Context;
 use axum::{Router, routing::get};
@@ -38,9 +41,12 @@ async fn main() -> anyhow::Result<()> {
 
     let app: Router = Router::new()
         .nest("/api/jobs", jobs::routes())
-        .nest("/api/jobs/{job_id}", live::routes())
         .nest("/api/jobs/{job_id}/schedules", schedules::routes())
         .nest("/api/jobs/{job_id}/days", days::routes())
+        .nest("/api/jobs/{job_id}", live::routes())
+        .nest("/api/jobs/{job_id}", flex::routes())
+        .nest("/api/jobs/{job_id}", summary::routes())
+        .route("/api/status", get(status::status))
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))

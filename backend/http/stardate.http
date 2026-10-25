@@ -217,6 +217,50 @@ Content-Type: {{jsonType}}
 
 {}
 
+### ---------- Summary, flex and status ----------
+
+### Summary for a range: per-day totals and range totals (open days left out of the totals)
+GET {{baseUrl}}/jobs/{{dayJobId}}/summary?from=2026-10-01&to=2026-10-31
+
+### Flex balance: closed days plus adjustments
+GET {{baseUrl}}/jobs/{{dayJobId}}/flex
+
+### Add a flex adjustment (positive adds, negative takes)
+# @name createAdjustment
+POST {{baseUrl}}/jobs/{{dayJobId}}/flex-adjustments
+Content-Type: {{jsonType}}
+
+{
+  "adjustedOn": "2026-10-01",
+  "minutes": 120,
+  "note": "Carried over from the old system"
+}
+
+###
+@adjustmentId = {{createAdjustment.response.body.$.id}}
+
+### List adjustments
+GET {{baseUrl}}/jobs/{{dayJobId}}/flex-adjustments
+
+### Edit an adjustment
+# @name updateAdjustment
+PUT {{baseUrl}}/jobs/{{dayJobId}}/flex-adjustments/{{adjustmentId}}
+Content-Type: {{jsonType}}
+If-Match: {{createAdjustment.response.headers.ETag}}
+
+{
+  "adjustedOn": "2026-10-01",
+  "minutes": -60,
+  "note": "Overtime paid out"
+}
+
+### Delete an adjustment
+DELETE {{baseUrl}}/jobs/{{dayJobId}}/flex-adjustments/{{adjustmentId}}
+If-Match: {{updateAdjustment.response.headers.ETag}}
+
+### Status of every active job (date: your local date, for today's day when not clocked in)
+GET {{baseUrl}}/status?date={{$localDatetime 'YYYY-MM-DD'}}
+
 ### ---------- Expected errors ----------
 
 ### 428: update without If-Match
@@ -355,6 +399,15 @@ Content-Type: {{jsonType}}
   "at": "2099-01-01T08:00:00Z"
 }
 
+### 400: flex adjustment of 0 minutes
+POST {{baseUrl}}/jobs/{{dayJobId}}/flex-adjustments
+Content-Type: {{jsonType}}
+
+{
+  "adjustedOn": "2026-10-01",
+  "minutes": 0
+}
+
 ### ---------- Clean up ----------
 
 ### Archive job (idempotent: a second call returns it unchanged)
@@ -368,6 +421,3 @@ GET {{baseUrl}}/jobs/{{jobId}}
 DELETE {{baseUrl}}/jobs/{{jobId}}
 If-Match: {{getArchivedJob.response.headers.ETag}}
 
-# ---------- Not implemented yet ----------
-# Summary, flex and status are added here as each step lands, with request
-# bodies matching the implementation.

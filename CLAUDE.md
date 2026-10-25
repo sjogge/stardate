@@ -37,6 +37,9 @@ backend/
     schedules.rs           # /api/jobs/{job_id}/schedules
     days.rs                # /api/jobs/{job_id}/days: register, edit, delete days; snapshot helpers
     live.rs                # /api/jobs/{job_id}/clock-in, clock-out, pauses/start, pauses/end
+    summary.rs             # /api/jobs/{job_id}/summary
+    flex.rs                # /api/jobs/{job_id}/flex, flex-adjustments; flex::balance
+    status.rs              # /api/status
 compose.yaml
 docs/time-tracking.md      # domain spec
 ```

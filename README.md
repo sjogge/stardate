@@ -53,8 +53,14 @@ stardate/
 │       ├── auth.rs          # CurrentUser extractor (seeded user until auth exists)
 │       ├── concurrency.rs   # If-Match extractor and ETag responses
 │       ├── health.rs        # GET /api/health
+│       ├── calc.rs          # pure day calculations: worked time, balance, leave-at
 │       ├── jobs.rs          # jobs API
-│       └── schedules.rs     # schedules API (with weekday rows)
+│       ├── schedules.rs     # schedules API (with weekday rows)
+│       ├── days.rs          # days API (register, edit, delete days)
+│       ├── live.rs          # clock-in/out and pause start/end
+│       ├── summary.rs       # per-day and range totals
+│       ├── flex.rs          # flex balance and adjustments
+│       └── status.rs        # start-screen status of all active jobs
 ├── docs/
 │   └── time-tracking.md     # domain and API specification
 ├── compose.yaml
@@ -62,8 +68,7 @@ stardate/
 └── README.md
 ```
 
-Planned additions: modules for days, flex and status; a pure calculation module; a `frontend/` folder whose build is served by axum from the
-same container.
+Planned addition: a `frontend/` folder whose build is served by axum from the same container.
 
 ## Configuration
 
@@ -143,11 +148,23 @@ UTC; dates are `YYYY-MM-DD`.
 | GET    | `/api/jobs/{id}/schedules/{scheduleId}` | Get a schedule version                                                             |
 | PUT    | `/api/jobs/{id}/schedules/{scheduleId}` | Replace a schedule version and its weekday rows (requires `If-Match`)              |
 | DELETE | `/api/jobs/{id}/schedules/{scheduleId}` | Delete a schedule version (requires `If-Match`); existing days keep their snapshot |
+| GET    | `/api/jobs/{id}/days?from=&to=` | Days in an inclusive date range (at most 366 days), with totals |
+| GET    | `/api/jobs/{id}/days/{date}` | One day with its pauses, snapshot and totals |
+| PUT    | `/api/jobs/{id}/days/{date}` | Create (`If-None-Match: *`) or replace (`If-Match`) a day |
+| DELETE | `/api/jobs/{id}/days/{date}` | Delete a day and its pauses (requires `If-Match`) |
+| POST   | `/api/jobs/{id}/clock-in` | `{ "workDate": "...", "at"?: "..." }`: create today's day with its snapshot and open it |
+| POST   | `/api/jobs/{id}/clock-out` | `{ "at"?: "..." }`: close the open day, ending a running pause |
+| POST   | `/api/jobs/{id}/pauses/start` | `{ "kind": "lunch" \| "break" \| "other", "at"?: "..." }` on the open day |
+| POST   | `/api/jobs/{id}/pauses/end` | `{ "at"?: "..." }`: end the running pause |
+| GET    | `/api/jobs/{id}/summary?from=&to=` | Per-day totals and range totals (closed days plus adjustments in the range) |
+| GET    | `/api/jobs/{id}/flex` | Flex balance: closed days plus all adjustments |
+| GET    | `/api/jobs/{id}/flex-adjustments` | List manual adjustments |
+| POST   | `/api/jobs/{id}/flex-adjustments` | `{ "adjustedOn": "...", "minutes": 120, "note"?: "..." }` |
+| PUT    | `/api/jobs/{id}/flex-adjustments/{adjustmentId}` | Edit an adjustment (requires `If-Match`) |
+| DELETE | `/api/jobs/{id}/flex-adjustments/{adjustmentId}` | Delete an adjustment (requires `If-Match`) |
+| GET    | `/api/status?date=` | Every active job: clocked in, running pause, today's day, flex balance |
 
-### Planned
-
-Deleting days, clock-in/out, pauses, summary, flex balance and
-adjustments, and status. See the API section of [`docs/time-tracking.md`](docs/time-tracking.md).
+The full specification is in the API section of [`docs/time-tracking.md`](docs/time-tracking.md).
 
 ### Optimistic concurrency
 
@@ -272,9 +289,10 @@ Ideas that are not needed now but are worth knowing about.
 - [x] JSON error bodies for rejected requests (bad JSON, bad path values)
 - [x] Schedules API
 - [x] Delete archived jobs with all their data (`ON DELETE CASCADE` from `jobs`)
-- [ ] Calculation module (worked time, balance, leave-at)
-- [ ] Days API, clock-in/out and pauses
-- [ ] Summary, flex balance, flex adjustments and status
+- [x] Calculation module (worked time, balance, leave-at)
+- [x] Days API
+- [x] Clock-in/out and pauses
+- [x] Summary, flex balance, flex adjustments and status
 - [ ] Tests
 - [ ] Svelte frontend, served by axum
 - [ ] Authentication

@@ -149,24 +149,7 @@ struct TotalsDto {
 
 impl DayResponse {
     fn new(row: DayRow, pause_rows: Vec<PauseRow>, now: OffsetDateTime) -> Self {
-        let expected = calc::Expected {
-            work_minutes: row.expected_work_minutes,
-            lunch_minutes: row.expected_lunch_minutes,
-            break_minutes: row.expected_break_minutes,
-            lunch_paid: row.lunch_paid,
-            breaks_paid: row.breaks_paid,
-        };
-        let calc_pauses: Vec<calc::Pause> = pause_rows.iter().map(to_calc_pause).collect();
-        let day = match (row.kind, row.started_at) {
-            (DayKind::Work, Some(started_at)) => calc::Day::Work {
-                started_at,
-                ended_at: row.ended_at,
-                pauses: &calc_pauses,
-            },
-            // The CHECK constraints rule out a work day without a start
-            _ => calc::Day::Flex,
-        };
-        let totals = calc::day_totals(&day, &expected, now);
+        let totals = compute_totals(&row, &pause_rows, now);
 
         Self {
             id: row.id,
@@ -177,11 +160,11 @@ impl DayResponse {
             note: row.note,
             schedule_id: row.schedule_id,
             expected: ExpectedDto {
-                work_minutes: expected.work_minutes,
-                lunch_minutes: expected.lunch_minutes,
-                break_minutes: expected.break_minutes,
-                lunch_paid: expected.lunch_paid,
-                breaks_paid: expected.breaks_paid,
+                work_minutes: row.expected_work_minutes,
+                lunch_minutes: row.expected_lunch_minutes,
+                break_minutes: row.expected_break_minutes,
+                lunch_paid: row.lunch_paid,
+                breaks_paid: row.breaks_paid,
             },
             pauses: pause_rows
                 .into_iter()
@@ -209,6 +192,52 @@ impl DayResponse {
             updated_at: row.updated_at,
         }
     }
+
+    /// The pause that is running right now, if any (only an open day has one).
+    pub(crate) fn running_pause(&self) -> Option<RunningPause> {
+        self.pauses
+            .iter()
+            .find_map(|pause| match (pause.started_at, pause.ended_at) {
+                (Some(started_at), None) => Some(RunningPause {
+                    kind: pause.kind,
+                    started_at,
+                }),
+                _ => None,
+            })
+    }
+
+    pub(crate) fn is_open(&self) -> bool {
+        self.kind == DayKind::Work && self.ended_at.is_none()
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunningPause {
+    kind: PauseKind,
+    #[serde(with = "time::serde::rfc3339")]
+    started_at: OffsetDateTime,
+}
+
+fn compute_totals(row: &DayRow, pause_rows: &[PauseRow], now: OffsetDateTime) -> calc::Totals {
+    let expected = calc::Expected {
+        work_minutes: row.expected_work_minutes,
+        lunch_minutes: row.expected_lunch_minutes,
+        break_minutes: row.expected_break_minutes,
+        lunch_paid: row.lunch_paid,
+        breaks_paid: row.breaks_paid,
+    };
+    let calc_pauses: Vec<calc::Pause> = pause_rows.iter().map(to_calc_pause).collect();
+    let day = match (row.kind, row.started_at) {
+        (DayKind::Work, Some(started_at)) => calc::Day::Work {
+            started_at,
+            ended_at: row.ended_at,
+            pauses: &calc_pauses,
+        },
+        // The CHECK constraints rule out a work day without a start
+        _ => calc::Day::Flex,
+    };
+    calc::day_totals(&day, &expected, now)
 }
 
 fn to_calc_pause(row: &PauseRow) -> calc::Pause {
@@ -429,10 +458,32 @@ fn validate_pauses(
     Ok(valid)
 }
 
+/// An inclusive date range from the query string (`?from=&to=`).
 #[derive(Deserialize)]
 pub struct DateRange {
-    from: Date,
-    to: Date,
+    pub from: Date,
+    pub to: Date,
+}
+
+impl DateRange {
+    pub(crate) fn validate(&self) -> Result<(), AppError> {
+        if self.to < self.from {
+            return Err(invalid("to must not be before from"));
+        }
+        if self.to - self.from >= Duration::days(MAX_RANGE_DAYS) {
+            return Err(invalid("a range covers at most 366 days"));
+        }
+        Ok(())
+    }
+}
+
+/// One day's computed totals, for summaries and balances.
+pub(crate) struct DayTotals {
+    pub work_date: Date,
+    pub kind: DayKind,
+    /// A work day that has not been clocked out yet
+    pub open: bool,
+    pub totals: calc::Totals,
 }
 
 // ---------- Routes ----------
@@ -449,38 +500,78 @@ async fn list_days(
     AppPath(job_id): AppPath<i64>,
     AppQuery(range): AppQuery<DateRange>,
 ) -> Result<AppJson<Vec<DayResponse>>, AppError> {
-    if range.to < range.from {
-        return Err(invalid("to must not be before from"));
-    }
-    if range.to - range.from >= Duration::days(MAX_RANGE_DAYS) {
-        return Err(invalid("a range covers at most 366 days"));
-    }
+    range.validate()?;
 
     // Read-only transaction: days and pauses come from one snapshot
     let mut tx = pool.begin().await?;
     jobs::ensure_owned(&mut *tx, job_id, user.id).await?;
 
+    let now = now();
+    let days = load_range(&mut tx, job_id, Some(range.from), Some(range.to))
+        .await?
+        .into_iter()
+        .map(|(row, pauses)| DayResponse::new(row, pauses, now))
+        .collect();
+
+    Ok(AppJson(days))
+}
+
+/// Totals of the job's days from `from` to `to` (inclusive; None means unbounded),
+/// ordered by date. The caller checks ownership.
+pub(crate) async fn totals_in_range(
+    tx: &mut SqliteConnection,
+    job_id: i64,
+    from: Option<Date>,
+    to: Option<Date>,
+    now: OffsetDateTime,
+) -> Result<Vec<DayTotals>, AppError> {
+    Ok(load_range(tx, job_id, from, to)
+        .await?
+        .into_iter()
+        .map(|(row, pauses)| DayTotals {
+            work_date: row.work_date,
+            kind: row.kind,
+            open: row.kind == DayKind::Work && row.ended_at.is_none(),
+            totals: compute_totals(&row, &pauses, now),
+        })
+        .collect())
+}
+
+/// Loads the days in a range with their pauses: two queries, grouped by day in Rust.
+async fn load_range(
+    tx: &mut SqliteConnection,
+    job_id: i64,
+    from: Option<Date>,
+    to: Option<Date>,
+) -> Result<Vec<(DayRow, Vec<PauseRow>)>, AppError> {
     let rows = sqlx::query_as::<_, DayRow>(
         "SELECT id, work_date, kind, started_at, ended_at, schedule_id, expected_work_minutes, \
          expected_lunch_minutes, expected_break_minutes, lunch_paid, breaks_paid, note, version, \
          created_at, updated_at \
-         FROM work_days WHERE job_id = ? AND work_date BETWEEN ? AND ? ORDER BY work_date",
+         FROM work_days WHERE job_id = ? \
+         AND (? IS NULL OR work_date >= ?) AND (? IS NULL OR work_date <= ?) \
+         ORDER BY work_date",
     )
     .bind(job_id)
-    .bind(range.from)
-    .bind(range.to)
+    .bind(from)
+    .bind(from)
+    .bind(to)
+    .bind(to)
     .fetch_all(&mut *tx)
     .await?;
 
     let pause_rows = sqlx::query_as::<_, PauseRow>(
         "SELECT p.id, p.work_day_id, p.kind, p.started_at, p.ended_at, p.minutes \
          FROM pauses p JOIN work_days w ON w.id = p.work_day_id \
-         WHERE w.job_id = ? AND w.work_date BETWEEN ? AND ? \
+         WHERE w.job_id = ? \
+         AND (? IS NULL OR w.work_date >= ?) AND (? IS NULL OR w.work_date <= ?) \
          ORDER BY p.work_day_id, p.started_at, p.id",
     )
     .bind(job_id)
-    .bind(range.from)
-    .bind(range.to)
+    .bind(from)
+    .bind(from)
+    .bind(to)
+    .bind(to)
     .fetch_all(&mut *tx)
     .await?;
 
@@ -492,16 +583,13 @@ async fn list_days(
             .push(pause);
     }
 
-    let now = now();
-    let days = rows
+    Ok(rows
         .into_iter()
         .map(|row| {
             let pauses = pauses_by_day.remove(&row.id).unwrap_or_default();
-            DayResponse::new(row, pauses, now)
+            (row, pauses)
         })
-        .collect();
-
-    Ok(AppJson(days))
+        .collect())
 }
 
 async fn get_day(

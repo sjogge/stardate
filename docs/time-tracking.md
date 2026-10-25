@@ -197,8 +197,11 @@ above), so a short break still counts in full once the day is closed.
 ### Flex balance
 
 ```
-flex = sum(balance of every registered day) + sum(flex_adjustments.minutes)
+flex = sum(balance of every closed registered day) + sum(flex_adjustments.minutes)
 ```
+
+A day that is still open (clocked in, not out) is left out until it is clocked out: its balance is
+only "so far" and would swing from negative to positive during the day.
 
 Days that are not registered are ignored (sick days, vacation and forgotten days have no effect).
 Forgotten days can be registered later.
@@ -260,6 +263,21 @@ guarded by the day's state and answer 409 when it does not fit:
 - `pauses/end`: 409 if no pause is running. 400 if `at` is not after the pause start.
 
 Each returns the day like `GET /jobs/{id}/days/{date}` (201 for clock-in, otherwise 200).
+
+`GET /jobs/{id}/summary?from=&to=` (inclusive, at most 366 days) returns `days` (per day: `workDate`,
+`kind`, `open`, `workedMinutes`, `expectedWorkMinutes`, `balanceMinutes`) and `totals` (`workDays`,
+`flexDays`, `workedMinutes`, `expectedWorkMinutes`, `daysBalanceMinutes`, `adjustmentsMinutes` dated
+in the range, `balanceMinutes`). Totals cover closed days only and are summed in seconds before
+rounding.
+
+`GET /jobs/{id}/flex` returns `balanceMinutes`, `daysMinutes` and `adjustmentsMinutes`.
+
+Flex adjustments take `{ adjustedOn, minutes, note? }`; `minutes` is non-zero (positive adds,
+negative takes) and at most a year of full days.
+
+`GET /status?date=` returns one entry per active job: `jobId`, `jobName`, `clockedIn`, `runningPause`
+(`kind`, `startedAt`), `today` and `flexBalanceMinutes`. `today` is the open day, or else the day
+registered on `date` (the client's local date, optional), in the same shape as a day response.
 
 Example of registering a past day:
 
