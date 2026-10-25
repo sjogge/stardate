@@ -18,8 +18,8 @@ small: one Rust binary with SQLite compiled in.
 | Docker image + Compose                                                                            | Done                                               |
 | Data model and schema                                                                             | Done (`0001_time_tracking.sql`)                    |
 | API: jobs, schedules                                                                              | Done                                               |
-| API: days, clock-in/out, pauses, summary, flex, status                                            | In progress                                        |
-| Frontend (Svelte)                                                                                 | Not started                                        |
+| API: days, clock-in/out, pauses, summary, flex, status                                            | Done                                               |
+| Frontend (Svelte)                                                                                 | In progress (scaffolded in `web/`)                 |
 | Tests                                                                                             | Later                                              |
 | Authentication                                                                                    | Later. **Do not expose beyond the LAN until then** |
 
@@ -30,7 +30,8 @@ The domain model, rules and full API are specified in
 
 - **Backend:** Rust, axum, sqlx (SQLite), tokio, time, tracing, anyhow
 - **Database:** SQLite (bundled into the binary, file stored in a Docker volume)
-- **Frontend:** Svelte + Vite (planned), served as static files by axum
+- **Frontend:** SvelteKit 2 + Svelte 5 SPA (TypeScript, Tailwind CSS v4, Skeleton v5), built to
+  static files that axum will serve from the same origin
 - **Runtime:** Docker on a Raspberry Pi (arm64)
 
 ## Project structure
@@ -61,6 +62,12 @@ stardate/
 │       ├── summary.rs       # per-day and range totals
 │       ├── flex.rs          # flex balance and adjustments
 │       └── status.rs        # start-screen status of all active jobs
+├── web/                     # Svelte SPA; rules in web/CLAUDE.md
+│   ├── package.json         # npm scripts: dev, check, lint, format, test, build
+│   ├── vite.config.ts       # SvelteKit, static adapter, /api dev proxy, Vitest
+│   └── src/
+│       ├── app.html         # sets theme and light/dark mode before first paint
+│       └── routes/          # pages; +layout.ts turns off SSR and prerendering
 ├── docs/
 │   └── time-tracking.md     # domain and API specification
 ├── compose.yaml
@@ -68,7 +75,7 @@ stardate/
 └── README.md
 ```
 
-Planned addition: a `frontend/` folder whose build is served by axum from the same container.
+Planned: the `web/` build is served by axum from the same container.
 
 ## Configuration
 
@@ -97,6 +104,24 @@ Before committing, from `backend/`:
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo build
+```
+
+### Frontend
+
+With the backend running on port 3000, from `web/`:
+
+```sh
+npm ci
+npm run dev        # http://localhost:5173, /api is proxied to the backend
+```
+
+Before committing, from `web/`:
+
+```sh
+npm run check
+npm run lint
+npm test           # component tests need Chromium once: npx playwright install chromium
+npm run build
 ```
 
 ## Run with Docker
@@ -162,7 +187,7 @@ UTC; dates are `YYYY-MM-DD`.
 | POST   | `/api/jobs/{id}/flex-adjustments` | `{ "adjustedOn": "...", "minutes": 120, "note"?: "..." }` |
 | PUT    | `/api/jobs/{id}/flex-adjustments/{adjustmentId}` | Edit an adjustment (requires `If-Match`) |
 | DELETE | `/api/jobs/{id}/flex-adjustments/{adjustmentId}` | Delete an adjustment (requires `If-Match`) |
-| GET    | `/api/status?date=` | Every active job: clocked in, running pause, today's day, flex balance |
+| GET    | `/api/status?date=` | Every active job: clocked in, running pause, valid live actions, today's day, flex balance |
 
 The full specification is in the API section of [`docs/time-tracking.md`](docs/time-tracking.md).
 
@@ -238,6 +263,18 @@ Preconditions go into the write statement itself instead of a separate check bef
 - Reads are scoped the same way, by joining through `jobs.user_id`. Authentication will only have
   to change how `CurrentUser` is resolved.
 
+### Valid live actions come from the backend
+
+`GET /api/status` returns `availableActions` per job (`clockIn`, `clockOut`, `startPause`,
+`endPause`), computed by `live::available_actions` next to the handlers whose guards it mirrors.
+
+- **Why:** which action is valid is a business rule. Every client must agree on it, so the
+  frontend shows the buttons it is given instead of re-deriving them from `clockedIn` and
+  `runningPause`.
+- The list says what is allowed, not what to show first. Picking the primary button (e.g. lunch
+  before break) is presentation and stays in the frontend.
+- Without `date`, a day already registered today is unknown, so `clockIn` can still answer 409.
+
 ## Deploy to the Raspberry Pi
 
 Build an arm64 image on a PC and copy it to the Pi.
@@ -280,6 +317,13 @@ Ideas that are not needed now but are worth knowing about.
   `AppError::Internal`; `Tagged` should then use `AppJson` too. Not urgent: the current response
   types cannot fail to serialize. It would matter for types such as maps with non-string keys, or
   dates outside years 0000–9999.
+
+- **Clock-out in the same second a pause started.** Clocking out at the same second as the
+  running pause's start answers 400 "a pause lies after the clock-out time". `clock_out` only
+  ends a running pause when `started_at < at`, so the pause stays open and the following
+  "outside the day" check rejects it. Rare by hand, but easy to hit from a script or a double
+  tap. Possible fixes: delete a running pause that has no duration yet, or answer 409 with a
+  clearer message.
 
 ## Roadmap
 

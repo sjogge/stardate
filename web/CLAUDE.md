@@ -11,10 +11,10 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 
 - SvelteKit 2 + Svelte 5 (runes and snippets only, no legacy `$:` or `export let`, no `svelte/store` for new code).
 - TypeScript in strict mode.
-- Vite (current stable). Do not use SvelteKit 3 pre-releases.
+- Vite (current stable). Stay on SvelteKit 2: Kit 3 is stable since 2026-10 but not adopted yet (Skeleton v5 targets Kit 2). `sv@0.17.1` is the last `sv` release that scaffolds Kit 2.
 - Tailwind CSS v4 (CSS-first config, `@tailwindcss/vite` plugin, no `tailwind.config.js`).
 - Skeleton v5 (`@skeletonlabs/skeleton` + `@skeletonlabs/skeleton-svelte`). Use its Tailwind components and Svelte framework components before writing custom ones.
-- Icons: `lucide-svelte`.
+- Icons: `@lucide/svelte` (`lucide-svelte` is deprecated).
 - Documentation: https://www.skeleton.dev/docs/svelte/get-started/introduction and the LLM page at https://www.skeleton.dev/docs/svelte/resources/llms. Skeleton v5 differs from v4, so ignore v4 examples. If you cannot read the docs, ask me instead of guessing the API.
 
 ## Delivery model
@@ -85,7 +85,8 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 
 ## Verification
 
-- Run `npm run check` (svelte-check), lint, format check, and `npm run build` before considering work complete and fix errors you introduced.
+- Run `npm run check` (svelte-check), `npm run lint` (Prettier check and ESLint), `npm test` and `npm run build` before considering work complete and fix errors you introduced.
+- Component tests (`*.svelte.test.ts`) run in Vitest browser mode with Playwright; other tests (`*.test.ts`) run in Node. Browser mode needs Chromium once: `npx playwright install chromium`.
 - Add Vitest tests for the API client (error mapping to toasts, 401 handling) and for non-trivial components. Tests must be deterministic and mock the network.
 
 ## Safety

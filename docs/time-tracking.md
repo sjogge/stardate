@@ -245,7 +245,7 @@ All routes under `/api`, JSON in `camelCase`, errors as `{"message": "..."}`.
 | GET              | `/jobs/{id}/flex`                            | Total flex balance                                                                                      |
 | GET, POST        | `/jobs/{id}/flex-adjustments`                | List / add adjustments                                                                                  |
 | PUT, DELETE      | `/jobs/{id}/flex-adjustments/{adjustmentId}` | Edit / delete                                                                                           |
-| GET              | `/status`                                    | Per active job: clocked in, start, running pause, worked so far, today's balance, `leaveAt`, total flex |
+| GET              | `/status`                                    | Per active job: clocked in, valid live actions, running pause, today's day (with `leaveAt`), total flex |
 
 `at` defaults to the server's current time. It may lie at most one minute in the future (clock
 differences between devices). Live action bodies are JSON objects; send `{}` to use the defaults.
@@ -276,8 +276,22 @@ Flex adjustments take `{ adjustedOn, minutes, note? }`; `minutes` is non-zero (p
 negative takes) and at most a year of full days.
 
 `GET /status?date=` returns one entry per active job: `jobId`, `jobName`, `clockedIn`, `runningPause`
-(`kind`, `startedAt`), `today` and `flexBalanceMinutes`. `today` is the open day, or else the day
-registered on `date` (the client's local date, optional), in the same shape as a day response.
+(`kind`, `startedAt`), `availableActions`, `today` and `flexBalanceMinutes`. `today` is the open day,
+or else the day registered on `date` (the client's local date, optional), in the same shape as a day
+response.
+
+`availableActions` lists the live actions that will not answer 409, so clients do not re-derive
+the rules:
+
+| State                              | `availableActions`           |
+| ---------------------------------- | ---------------------------- |
+| No day on `date`                   | `["clockIn"]`                |
+| Clocked in, no pause running       | `["startPause", "clockOut"]` |
+| Clocked in, a pause running        | `["endPause", "clockOut"]`   |
+| Day on `date` closed, or flex day  | `[]`                         |
+
+`startPause` covers every pause kind. Without `date`, a day already registered today is unknown,
+so `clockIn` may still answer 409.
 
 Example of registering a past day:
 
