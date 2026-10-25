@@ -244,7 +244,22 @@ All routes under `/api`, JSON in `camelCase`, errors as `{"message": "..."}`.
 | PUT, DELETE      | `/jobs/{id}/flex-adjustments/{adjustmentId}` | Edit / delete                                                                                           |
 | GET              | `/status`                                    | Per active job: clocked in, start, running pause, worked so far, today's balance, `leaveAt`, total flex |
 
-`at` defaults to the server's current time.
+`at` defaults to the server's current time. It may lie at most one minute in the future (clock
+differences between devices). Live action bodies are JSON objects; send `{}` to use the defaults.
+
+Live actions (`clock-in`, `clock-out`, `pauses/start`, `pauses/end`) need no `If-Match`. They are
+guarded by the day's state and answer 409 when it does not fit:
+
+- `clock-in`: 409 if the job is archived, if a day is already open ("already clocked in on <date>"),
+  or if a day is already registered for `workDate`. `workDate` may differ from the UTC date of `at`
+  by at most one day (the client's local date). The day is created with its schedule snapshot.
+- `clock-out`: 409 if not clocked in. A running pause is ended at the same time. 400 if `at` is not
+  after clock-in, the day would exceed 24 hours, or a logged pause lies after `at`.
+- `pauses/start`: 409 if not clocked in or a pause is already running. 400 if `at` is before
+  clock-in or before the previous pause ended.
+- `pauses/end`: 409 if no pause is running. 400 if `at` is not after the pause start.
+
+Each returns the day like `GET /jobs/{id}/days/{date}` (201 for clock-in, otherwise 200).
 
 Example of registering a past day:
 

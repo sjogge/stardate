@@ -8,6 +8,7 @@ mod error;
 mod extract;
 mod health;
 mod jobs;
+mod live;
 mod schedules;
 
 use anyhow::Context;
@@ -37,6 +38,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app: Router = Router::new()
         .nest("/api/jobs", jobs::routes())
+        .nest("/api/jobs/{job_id}", live::routes())
         .nest("/api/jobs/{job_id}/schedules", schedules::routes())
         .nest("/api/jobs/{job_id}/days", days::routes())
         .layer(

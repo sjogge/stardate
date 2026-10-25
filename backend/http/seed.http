@@ -178,5 +178,12 @@ GET {{baseUrl}}/jobs/{{jobId}}/schedules
 ###
 GET {{baseUrl}}/jobs/{{jobId}}/days?from=2026-07-01&to=2026-10-31
 
-# Flex adjustments and a live clock-in are added here once the live actions (step 6)
-# and flex API (step 7) exist.
+### 7. Optional: clock in now, to see a live day with leaveAt
+POST {{baseUrl}}/jobs/{{jobId}}/clock-in
+Content-Type: {{jsonType}}
+
+{
+  "workDate": "{{$localDatetime 'YYYY-MM-DD'}}"
+}
+
+# Flex adjustments are added here once the flex API (step 7) exists.

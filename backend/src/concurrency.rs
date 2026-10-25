@@ -44,17 +44,6 @@ pub trait Versioned {
     fn version(&self) -> i64;
 }
 
-/// A JSON response with an `ETag` header taken from the body's version, so the
-/// header and the `version` field can never disagree.
-pub struct Tagged<T>(pub T);
-
-impl<T: Versioned + Serialize> IntoResponse for Tagged<T> {
-    fn into_response(self) -> Response {
-        let etag = format!("\"{}\"", self.0.version());
-        ([(header::ETAG, etag)], Json(self.0)).into_response()
-    }
-}
-
 /// The precondition of a create-or-replace `PUT`: `If-Match: "<version>"` replaces an
 /// existing resource, `If-None-Match: *` creates one that must not exist yet.
 /// Requests without either are rejected (428), so a client cannot overwrite by accident.
@@ -83,5 +72,16 @@ impl<S: Send + Sync> FromRequestParts<S> for WritePrecondition {
             (None, Some(_)) => Err(AppError::Validation("If-None-Match only supports *".into())),
             (None, None) => Err(AppError::PreconditionRequired),
         }
+    }
+}
+
+/// A JSON response with an `ETag` header taken from the body's version, so the
+/// header and the `version` field can never disagree.
+pub struct Tagged<T>(pub T);
+
+impl<T: Versioned + Serialize> IntoResponse for Tagged<T> {
+    fn into_response(self) -> Response {
+        let etag = format!("\"{}\"", self.0.version());
+        ([(header::ETAG, etag)], Json(self.0)).into_response()
     }
 }

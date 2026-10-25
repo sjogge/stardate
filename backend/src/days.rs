@@ -15,7 +15,7 @@ use crate::{
     jobs,
 };
 
-const MAX_DAY_SECONDS: i64 = 24 * 60 * 60;
+pub(crate) const MAX_DAY_SECONDS: i64 = 24 * 60 * 60;
 const MAX_MINUTES_PER_DAY: i64 = 24 * 60;
 const MAX_NOTE_CHARS: usize = 1000;
 const MAX_PAUSES: usize = 50;
@@ -286,7 +286,14 @@ struct ValidPause {
     minutes: Option<i64>,
 }
 
-fn invalid(message: &str) -> AppError {
+/// The current time in whole seconds, like every stored instant, so computed values
+/// such as `leaveAt` never carry fractions of a second.
+pub(crate) fn now() -> OffsetDateTime {
+    let now = OffsetDateTime::now_utc();
+    now.replace_nanosecond(0).unwrap_or(now)
+}
+
+pub(crate) fn invalid(message: &str) -> AppError {
     AppError::Validation(message.into())
 }
 
@@ -485,7 +492,7 @@ async fn list_days(
             .push(pause);
     }
 
-    let now = OffsetDateTime::now_utc();
+    let now = now();
     let days = rows
         .into_iter()
         .map(|row| {
@@ -518,7 +525,7 @@ async fn put_day(
     precondition: WritePrecondition,
     AppJson(request): AppJson<DayRequest>,
 ) -> Result<(StatusCode, Tagged<DayResponse>), AppError> {
-    let day = request.validate(OffsetDateTime::now_utc())?;
+    let day = request.validate(now())?;
 
     let mut tx = db::begin_write(&pool).await?;
 
@@ -630,7 +637,7 @@ async fn delete_day(
 
 /// Copies the expected values of the schedule valid on `work_date` into the day.
 /// No schedule, or no row for that weekday, means everything expected is 0.
-async fn take_snapshot(
+pub(crate) async fn take_snapshot(
     tx: &mut SqliteConnection,
     day_id: i64,
     work_date: Date,
@@ -725,7 +732,7 @@ async fn replace_pauses(
 
 /// Loads a day with its pauses and computes its totals. None if the day does not
 /// exist for this user and job.
-async fn load_day(
+pub(crate) async fn load_day(
     tx: &mut SqliteConnection,
     job_id: i64,
     work_date: Date,
@@ -748,11 +755,7 @@ async fn load_day(
         return Ok(None);
     };
     let pauses = load_pauses(&mut *tx, row.id).await?;
-    Ok(Some(DayResponse::new(
-        row,
-        pauses,
-        OffsetDateTime::now_utc(),
-    )))
+    Ok(Some(DayResponse::new(row, pauses, now())))
 }
 
 async fn load_pauses(

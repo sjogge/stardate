@@ -177,6 +177,46 @@ GET {{baseUrl}}/jobs/{{dayJobId}}/days?from=2026-10-01&to=2026-10-31
 DELETE {{baseUrl}}/jobs/{{dayJobId}}/days/2026-10-23
 If-Match: {{refreshDay.response.headers.ETag}}
 
+### ---------- Live actions ----------
+# On the "Day experiments" job. Send them one by one, a few seconds apart: times are
+# stored in whole seconds, so a pause cannot start and end in the same second.
+
+### Clock in now (workDate is your local date)
+POST {{baseUrl}}/jobs/{{dayJobId}}/clock-in
+Content-Type: {{jsonType}}
+
+{
+  "workDate": "{{$localDatetime 'YYYY-MM-DD'}}"
+}
+
+### Start lunch (now)
+POST {{baseUrl}}/jobs/{{dayJobId}}/pauses/start
+Content-Type: {{jsonType}}
+
+{
+  "kind": "lunch"
+}
+
+### End the running pause (now)
+POST {{baseUrl}}/jobs/{{dayJobId}}/pauses/end
+Content-Type: {{jsonType}}
+
+{}
+
+### Start a break (now)
+POST {{baseUrl}}/jobs/{{dayJobId}}/pauses/start
+Content-Type: {{jsonType}}
+
+{
+  "kind": "break"
+}
+
+### Clock out (now); the running break ends at the same time
+POST {{baseUrl}}/jobs/{{dayJobId}}/clock-out
+Content-Type: {{jsonType}}
+
+{}
+
 ### ---------- Expected errors ----------
 
 ### 428: update without If-Match
@@ -294,6 +334,27 @@ Content-Type: {{jsonType}}
 ### 400: range with to before from
 GET {{baseUrl}}/jobs/{{dayJobId}}/days?from=2026-10-31&to=2026-10-01
 
+### 409: clock out when not clocked in
+POST {{baseUrl}}/jobs/{{dayJobId}}/clock-out
+Content-Type: {{jsonType}}
+
+{}
+
+### 409: end a pause when none is running
+POST {{baseUrl}}/jobs/{{dayJobId}}/pauses/end
+Content-Type: {{jsonType}}
+
+{}
+
+### 400: clock in with a time in the future
+POST {{baseUrl}}/jobs/{{dayJobId}}/clock-in
+Content-Type: {{jsonType}}
+
+{
+  "workDate": "{{$localDatetime 'YYYY-MM-DD'}}",
+  "at": "2099-01-01T08:00:00Z"
+}
+
 ### ---------- Clean up ----------
 
 ### Archive job (idempotent: a second call returns it unchanged)
@@ -308,5 +369,5 @@ DELETE {{baseUrl}}/jobs/{{jobId}}
 If-Match: {{getArchivedJob.response.headers.ETag}}
 
 # ---------- Not implemented yet ----------
-# Clock-in/out, pauses, summary, flex and status are added here as each step
-# lands, with request bodies matching the implementation.
+# Summary, flex and status are added here as each step lands, with request
+# bodies matching the implementation.

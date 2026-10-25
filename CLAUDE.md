@@ -28,13 +28,15 @@ backend/
     config.rs              # env config: DATABASE_URL (required), BIND_ADDR, RUST_LOG
     db.rs                  # pool (WAL, synchronous=NORMAL, foreign_keys, busy_timeout), begin_write
     error.rs               # AppError -> HTTP status + {"message": ...}
-    extract.rs             # AppJson, AppPath: axum extractors whose rejections become AppError
+    extract.rs             # AppJson, AppPath, AppQuery: axum extractors whose rejections become AppError
     auth.rs                # CurrentUser extractor (seeded user until authentication exists)
-    concurrency.rs         # ExpectedVersion (If-Match) extractor, Tagged (ETag) response
+    concurrency.rs         # ExpectedVersion / WritePrecondition (If-Match, If-None-Match), Tagged (ETag)
     calc.rs                # pure day calculations: worked time, balance, leave-at
     health.rs              # GET /api/health
     jobs.rs                # /api/jobs
     schedules.rs           # /api/jobs/{job_id}/schedules
+    days.rs                # /api/jobs/{job_id}/days: register, edit, delete days; snapshot helpers
+    live.rs                # /api/jobs/{job_id}/clock-in, clock-out, pauses/start, pauses/end
 compose.yaml
 docs/time-tracking.md      # domain spec
 ```
@@ -64,8 +66,10 @@ Before considering work done: fmt, clippy (no warnings) and build must pass.
   Client-facing messages are generic; details go to the log via `tracing` with `%e`.
 - SQL: runtime-checked `sqlx::query`/`query_as` with bind parameters. Do not use the `query!`
   macros (they need a database at build time, which breaks the Docker build).
-- Extractors: handlers use `AppJson` and `AppPath` from `extract.rs`, never `axum::Json` or
-  `axum::extract::Path`, so rejected requests also return `{"message": ...}`.
+- Extractors: handlers use `AppJson`, `AppPath` and `AppQuery` from `extract.rs`, never axum's
+  `Json`, `Path` or `Query`, so rejected requests also return `{"message": ...}`.
+- Current time: use `days::now()` (whole seconds), not `OffsetDateTime::now_utc()`, so computed
+  instants never carry fractions of a second.
 - Versioned resources: responses use `Tagged` (sets `ETag`); `PUT` and `DELETE` take `ExpectedVersion`.
   A conditional write that affects no rows is followed by a read-only query that picks
   404 (not found for this user), 412 (stale version) or 409 (wrong state).
