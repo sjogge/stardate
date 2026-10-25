@@ -9,7 +9,8 @@ anything time-tracking related; it is the source of truth for rules and calculat
 ## Stack
 
 - Backend: Rust (edition 2024), Axum 0.8, Tokio, sqlx 0.9 with SQLite, `tracing`, `anyhow` in `main`
-- Time: the `time` crate (`serde`, `formatting`, `parsing` features). No timezone database on the server.
+- Time: the `time` crate (`serde-human-readable` feature: dates as `YYYY-MM-DD`). No timezone database
+  on the server.
 - Frontend (not created yet): Svelte + Vite SPA, served as static files by Axum later. The SPA stays
   "dumb": all calculations happen in the backend.
 - Deployment: multi-stage `backend/Dockerfile` (Alpine, non-root UID 10001), `compose.yaml` with a
@@ -21,12 +22,19 @@ anything time-tracking related; it is the source of truth for rules and calculat
 backend/
   build.rs                 # rerun build when migrations change
   migrations/              # SQL migrations, embedded with sqlx::migrate!() and run at startup
+  http/                    # REST Client requests: seed.http (sample data), stardate.http (all endpoints)
   src/
     main.rs                # startup, router, graceful shutdown
     config.rs              # env config: DATABASE_URL (required), BIND_ADDR, RUST_LOG
-    db.rs                  # pool: WAL, synchronous=NORMAL, foreign_keys, busy_timeout
+    db.rs                  # pool (WAL, synchronous=NORMAL, foreign_keys, busy_timeout), begin_write
     error.rs               # AppError -> HTTP status + {"message": ...}
+    extract.rs             # AppJson, AppPath: axum extractors whose rejections become AppError
+    auth.rs                # CurrentUser extractor (seeded user until authentication exists)
+    concurrency.rs         # ExpectedVersion (If-Match) extractor, Tagged (ETag) response
+    calc.rs                # pure day calculations: worked time, balance, leave-at
     health.rs              # GET /api/health
+    jobs.rs                # /api/jobs
+    schedules.rs           # /api/jobs/{job_id}/schedules
 compose.yaml
 docs/time-tracking.md      # domain spec
 ```
@@ -56,7 +64,17 @@ Before considering work done: fmt, clippy (no warnings) and build must pass.
   Client-facing messages are generic; details go to the log via `tracing` with `%e`.
 - SQL: runtime-checked `sqlx::query`/`query_as` with bind parameters. Do not use the `query!`
   macros (they need a database at build time, which breaks the Docker build).
-- Migrations: never edit an applied migration; add a new numbered file. Tables use `STRICT`.
+- Extractors: handlers use `AppJson` and `AppPath` from `extract.rs`, never `axum::Json` or
+  `axum::extract::Path`, so rejected requests also return `{"message": ...}`.
+- Versioned resources: responses use `Tagged` (sets `ETag`); `PUT` and `DELETE` take `ExpectedVersion`.
+  A conditional write that affects no rows is followed by a read-only query that picks
+  404 (not found for this user), 412 (stale version) or 409 (wrong state).
+- Transactions: write transactions start with `db::begin_write` (`BEGIN IMMEDIATE`), never
+  `pool.begin()`. Use `pool.begin()` only for read-only transactions that need one consistent
+  snapshot across several queries. Fold preconditions (ownership, version, state) into the
+  write's `WHERE` clause, e.g. `INSERT ... SELECT ... FROM jobs WHERE id = ? AND user_id = ?`.
+- Instants: bind `.unix_timestamp()` (an `i64`), never an `OffsetDateTime`: sqlx encodes it as
+  RFC 3339 text, which the `STRICT` `INTEGER` columns reject. Reading into `OffsetDateTime` works.
 - Request tracing: `.layer(TraceLayer)` only wraps routes added before it. Add new API routes
   above the layer; `/api/health` stays below it to avoid log noise.
 - Keep calculation logic in a pure module (no I/O, no database) so it is easy to test later.

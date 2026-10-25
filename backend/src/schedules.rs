@@ -150,18 +150,19 @@ async fn list_schedules(
     user: CurrentUser,
     AppPath(job_id): AppPath<i64>,
 ) -> Result<AppJson<Vec<ScheduleResponse>>, AppError> {
-    // TODO: Could this also be made atomic? As in ensuring and reading in the same query?
-    jobs::ensure_owned(&pool, job_id, user.id).await?;
+    // A read-only transaction: all three queries see the same snapshot, so a schedule
+    // edited meanwhile cannot pair old schedule rows with new weekday rows
+    let mut tx = pool.begin().await?;
+    jobs::ensure_owned(&mut *tx, job_id, user.id).await?;
 
     let rows = sqlx::query_as::<_, ScheduleRow>(
         "SELECT id, valid_from, lunch_paid, breaks_paid, version, created_at, updated_at \
          FROM schedules WHERE job_id = ? ORDER BY valid_from",
     )
     .bind(job_id)
-    .fetch_all(&pool)
+    .fetch_all(&mut *tx)
     .await?;
 
-    // TODO: Explain why to queries are needed? Im just wondering what is going on.
     // One query for the weekday rows of all schedules instead of one per schedule
     let day_rows = sqlx::query_as::<_, ScheduleDayRow>(
         "SELECT d.schedule_id, d.weekday, d.work_minutes, d.lunch_minutes, d.break_minutes \
@@ -169,7 +170,7 @@ async fn list_schedules(
          WHERE s.job_id = ? ORDER BY d.schedule_id, d.weekday",
     )
     .bind(job_id)
-    .fetch_all(&pool)
+    .fetch_all(&mut *tx)
     .await?;
 
     let mut days_by_schedule: HashMap<i64, Vec<ScheduleDay>> = HashMap::new();
@@ -196,6 +197,9 @@ async fn get_schedule(
     user: CurrentUser,
     AppPath((job_id, schedule_id)): AppPath<(i64, i64)>,
 ) -> Result<Tagged<ScheduleResponse>, AppError> {
+    // Read-only transaction: the schedule row and its weekday rows come from one snapshot
+    let mut tx = pool.begin().await?;
+
     let row = sqlx::query_as::<_, ScheduleRow>(
         "SELECT s.id, s.valid_from, s.lunch_paid, s.breaks_paid, s.version, s.created_at, s.updated_at \
          FROM schedules s JOIN jobs j ON j.id = s.job_id \
@@ -204,11 +208,11 @@ async fn get_schedule(
     .bind(schedule_id)
     .bind(job_id)
     .bind(user.id)
-    .fetch_optional(&pool)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or(AppError::NotFound)?;
 
-    let days = load_days(&pool, row.id).await?;
+    let days = load_days(&mut *tx, row.id).await?;
     Ok(Tagged(ScheduleResponse::new(row, days)))
 }
 
