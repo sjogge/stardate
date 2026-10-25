@@ -181,6 +181,24 @@ scp compose.yaml pi:~/stardate/
 ssh pi 'cd ~/stardate && docker compose up -d'
 ```
 
+## Possible improvements
+
+Ideas that are not needed now but are worth knowing about.
+
+- **Batch insert weekday rows.** `schedules::insert_days` inserts one row per weekday in a loop.
+  sqlx's `QueryBuilder::push_values` can build a single multi-row `INSERT ... VALUES (...), (...)`
+  instead. Not worth it today: SQLite runs in-process (no network round trips) and the loop runs
+  inside one transaction, so seven inserts are as fast as one. Reconsider if row counts grow.
+  An empty list must be skipped, since `VALUES` without rows is invalid SQL.
+
+- **Handle response serialization failures in `AppJson`.** `AppJson` delegates responses to
+  `axum::Json`, which on a serialization error sends the serde error text as a plain-text 500 and
+  logs nothing. Serializing in `AppJson` itself (`serde_json::to_vec`) would log the cause with
+  `tracing` and return a generic `{"message": "Internal server error"}` via a new
+  `AppError::Internal`; `Tagged` should then use `AppJson` too. Not urgent: the current response
+  types cannot fail to serialize. It would matter for types such as maps with non-string keys, or
+  dates outside years 0000–9999.
+
 ## Roadmap
 
 - [x] Data model: jobs, versioned schedules, work days, pauses, flex adjustments (UTC instants)

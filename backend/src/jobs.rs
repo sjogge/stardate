@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{FromRow, SqliteExecutor, SqlitePool};
 use time::OffsetDateTime;
 
 use crate::{
@@ -208,5 +208,27 @@ async fn not_found_or_modified(pool: &SqlitePool, id: i64, user_id: i64) -> AppE
         Ok(true) => AppError::PreconditionFailed,
         Ok(false) => AppError::NotFound,
         Err(e) => e.into(),
+    }
+}
+
+/// Fails with 404 unless the job exists and belongs to the user. Child resources
+/// (schedules, days, ...) call this first so they never touch another user's job.
+pub async fn ensure_owned(
+    executor: impl SqliteExecutor<'_>,
+    job_id: i64,
+    user_id: i64,
+) -> Result<(), AppError> {
+    let exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM jobs WHERE id = ? AND user_id = ?)",
+    )
+    .bind(job_id)
+    .bind(user_id)
+    .fetch_one(executor)
+    .await?;
+
+    if exists {
+        Ok(())
+    } else {
+        Err(AppError::NotFound)
     }
 }

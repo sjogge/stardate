@@ -1,0 +1,85 @@
+### Stardate seed: one job with a schedule history
+# VS Code "REST Client" extension (humao.rest-client).
+# Start from an empty database (stop the app, delete backend/stardate.db*, start again)
+# and send the requests in order: later ones use the job id captured from the first.
+
+@baseUrl = http://localhost:3000/api
+@jsonType = application/json
+
+### 1. Create the job
+# @name job
+POST {{baseUrl}}/jobs
+Content-Type: {{jsonType}}
+
+{
+  "name": "Starla Corp"
+}
+
+###
+@jobId = {{job.response.body.$.id}}
+
+### 2. Schedule from 2026-01-01: 9 h at work per day, Monday to Friday
+# workMinutes is the work that counts (8 h). Lunch is unpaid and breaks are paid, so
+# leaveAt = start + 480 work + 60 lunch = start + 9 h.
+# @name schedule2026
+POST {{baseUrl}}/jobs/{{jobId}}/schedules
+Content-Type: {{jsonType}}
+
+{
+  "validFrom": "2026-01-01",
+  "lunchPaid": false,
+  "breaksPaid": true,
+  "days": [
+    { "weekday": 1, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 2, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 3, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 4, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 5, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 }
+  ]
+}
+
+### 3. Summer hours from 2026-06-01: shorter Fridays without lunch
+# A new version instead of an edit, so days before June keep the old expectation.
+# @name scheduleSummer
+POST {{baseUrl}}/jobs/{{jobId}}/schedules
+Content-Type: {{jsonType}}
+
+{
+  "validFrom": "2026-06-01",
+  "lunchPaid": false,
+  "breaksPaid": true,
+  "days": [
+    { "weekday": 1, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 2, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 3, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 4, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 5, "workMinutes": 300, "lunchMinutes": 0, "breakMinutes": 15 }
+  ]
+}
+
+### 4. Back to normal from 2026-09-01
+# @name scheduleAutumn
+POST {{baseUrl}}/jobs/{{jobId}}/schedules
+Content-Type: {{jsonType}}
+
+{
+  "validFrom": "2026-09-01",
+  "lunchPaid": false,
+  "breaksPaid": true,
+  "days": [
+    { "weekday": 1, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 2, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 3, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 4, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 5, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 }
+  ]
+}
+
+### 5. Check the result: one job, three schedule versions ordered by validFrom
+GET {{baseUrl}}/jobs/{{jobId}}
+
+###
+GET {{baseUrl}}/jobs/{{jobId}}/schedules
+
+# Registered days, flex adjustments and a live clock-in are added here once the
+# days API (step 5) and flex API (step 7) exist.

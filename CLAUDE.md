@@ -73,4 +73,7 @@ Before considering work done: fmt, clippy (no warnings) and build must pass.
 - Commits: imperative subject of at most 72 characters, body explains why, one logical change per commit.
 - Ask before destructive or shared-impact actions: pushing, force-pushing, deleting branches or files,
   dropping data. Never use `--no-verify`.
+- Migrations: until the first production deploy, `0001_time_tracking.sql` may be edited directly
+  (wipe local databases and `docker compose down -v` afterwards). After that, never edit an applied
+  migration; add a new numbered file. Tables use `STRICT`.
 

@@ -6,6 +6,7 @@ mod error;
 mod extract;
 mod health;
 mod jobs;
+mod schedules;
 
 use anyhow::Context;
 use axum::{Router, routing::get};
@@ -34,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app: Router = Router::new()
         .nest("/api/jobs", jobs::routes())
+        .nest("/api/jobs/{job_id}/schedules", schedules::routes())
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
