@@ -67,6 +67,9 @@ stardate/
 │   ├── vite.config.ts       # SvelteKit, static adapter, /api dev proxy, Vitest
 │   └── src/
 │       ├── app.html         # sets theme and light/dark mode before first paint
+│       ├── lib/
+│       │   ├── api/client.ts  # the only fetch: ApiError, If-Match, one global error handler
+│       │   └── toast.ts       # the toaster; identical error toasts are shown once
 │       └── routes/          # pages; +layout.ts turns off SSR and prerendering
 ├── docs/
 │   └── time-tracking.md     # domain and API specification
@@ -324,6 +327,12 @@ Ideas that are not needed now but are worth knowing about.
   "outside the day" check rejects it. Rare by hand, but easy to hit from a script or a double
   tap. Possible fixes: delete a running pause that has no duration yet, or answer 409 with a
   clearer message.
+
+- **Handle 401 in the frontend once authentication exists.** `web/CLAUDE.md` asks for a 401 to
+  redirect to sign-in instead of showing a toast. There is no authentication or sign-in page yet,
+  so today a 401 is shown like any other error. When authentication lands: in
+  `web/src/lib/api/client.ts`, send a 401 to the sign-in page instead of the error handler, and add
+  a client test for it.
 
 ## Roadmap
 

@@ -1,139 +1,106 @@
-# Stardate
+---
+description: Frontend guidelines for Stardate (Svelte SPA)
+applyTo: 'web/**'
+---
 
-Personal time-tracking web app: clock in/out, lunch and breaks, per-job schedules and a flex balance.
-Runs as a single Docker container on a Raspberry Pi, so keep resource use and dependencies minimal.
+# Stardate frontend
 
-The domain model and API are specified in `docs/time-tracking.md`. Read it before working on
-anything time-tracking related; it is the source of truth for rules and calculations.
-
-Frontend work in `web/` follows `web/CLAUDE.md`. Design decisions and their reasons are in the
-README ("Design decisions"); the roadmap and possible improvements are there too.
+Stardate is a personal time-tracking app with a Rust/Axum backend. This document covers the Svelte frontend in `web/`.
 
 ## Stack
 
-- Backend: Rust (edition 2024), Axum 0.8, Tokio, sqlx 0.9 with SQLite, `tracing`, `anyhow` in `main`
-- Time: the `time` crate (`serde-human-readable` feature: dates as `YYYY-MM-DD`). No timezone database
-  on the server.
-- Frontend: SvelteKit 2 + Svelte 5 SPA in `web/` (see `web/CLAUDE.md`), served as static files by
-  Axum from the same origin once the pages work.
-- Deployment: multi-stage `backend/Dockerfile` (Alpine, non-root UID 10001), `compose.yaml` with a
-  hardened service and the database on a volume at `/data`.
+- SvelteKit 2 + Svelte 5 (runes and snippets only, no legacy `$:` or `export let`, no `svelte/store` for new code).
+- TypeScript in strict mode.
+- Vite (current stable). Stay on SvelteKit 2: Kit 3 is stable since 2026-10 but not adopted yet (Skeleton v5 targets Kit 2). `sv@0.17.1` is the last `sv` release that scaffolds Kit 2.
+- Tailwind CSS v4 (CSS-first config, `@tailwindcss/vite` plugin, no `tailwind.config.js`).
+- Skeleton v5 (`@skeletonlabs/skeleton` + `@skeletonlabs/skeleton-svelte`). Use its Tailwind components and Svelte framework components before writing custom ones.
+- Icons: `@lucide/svelte` (`lucide-svelte` is deprecated).
+- Documentation: https://www.skeleton.dev/docs/svelte/get-started/introduction and the LLM page at https://www.skeleton.dev/docs/svelte/resources/llms. Skeleton v5 differs from v4, so ignore v4 examples. If you cannot read the docs, ask me instead of guessing the API.
 
-## Layout
+## Delivery model
 
-```
-backend/
-  build.rs                 # rerun build when migrations change
-  migrations/              # SQL migrations, embedded with sqlx::migrate!() and run at startup
-  http/                    # REST Client requests: seed.http (sample data), stardate.http (all endpoints)
-  src/
-    main.rs                # startup, router, graceful shutdown
-    config.rs              # env config: DATABASE_URL (required), BIND_ADDR, RUST_LOG
-    db.rs                  # pool (WAL, synchronous=NORMAL, foreign_keys, busy_timeout), begin_write
-    error.rs               # AppError -> HTTP status + {"message": ...}
-    extract.rs             # AppJson, AppPath, AppQuery: axum extractors whose rejections become AppError
-    auth.rs                # CurrentUser extractor (seeded user until authentication exists)
-    concurrency.rs         # ExpectedVersion / WritePrecondition (If-Match, If-None-Match), Tagged (ETag)
-    calc.rs                # pure day calculations: worked time, balance, leave-at
-    health.rs              # GET /api/health
-    jobs.rs                # /api/jobs
-    schedules.rs           # /api/jobs/{job_id}/schedules
-    days.rs                # /api/jobs/{job_id}/days: register, edit, delete days; snapshot helpers
-    live.rs                # /api/jobs/{job_id}/clock-in, clock-out, pauses/start, pauses/end;
-                           # available_actions (which of them are valid, for /api/status)
-    summary.rs             # /api/jobs/{job_id}/summary
-    flex.rs                # /api/jobs/{job_id}/flex, flex-adjustments; flex::balance
-    status.rs              # /api/status
-web/                       # Svelte SPA; its own rules in web/CLAUDE.md
-compose.yaml
-docs/time-tracking.md      # domain and API spec
-README.md                  # setup, API overview, design decisions, roadmap
-```
+- Static SPA: `@sveltejs/adapter-static` with `fallback: 'index.html'`, `ssr = false`, `prerender = false`.
+- The build output is served by the Axum server (`tower-http` `ServeDir`) from the same origin as the API under `/api`. There is no Node runtime in production.
+- Same origin means no CORS. Call the API with relative URLs (`/api/...`).
+- In development, proxy `/api` to the Axum server in `vite.config.ts`.
 
-Follow the existing pattern: one module per resource with a `routes()` function nested under `/api`,
-row structs with `FromRow`, separate request/response DTOs.
+## Architecture rules
 
-## Responsibility split
+- The backend does as much of the calculations (durations, totals, breaks, overtime, schedule resolution) as possible. The frontend only displays what the API returns and formats it. Never compute business values client-side.
+- Formatting and parsing of dates and times uses `Intl` and ISO 8601 strings. Keep timestamps and time zones as the API provides them.
+- Structure:
+  - `src/lib/api/` typed API client and DTO types
+  - `src/lib/components/` reusable UI
+  - `src/lib/features/<feature>/` feature-specific components and state
+  - `src/routes/` pages only, kept thin
+- All HTTP goes through one client in `src/lib/api/client.ts`. No `fetch` calls in components.
+- Shared state uses Svelte 5 runes in `.svelte.ts` modules.
+- Never store auth tokens in `localStorage`. Auth uses whatever the backend provides (prefer httpOnly cookie). Never use `{@html}` with API data.
 
-The backend is the main driver of the logic, not the only place for it:
+## Error handling and toasts
 
-- **Backend (authoritative):** business rules and anything that must be consistent for every
-  client: schedule snapshots, worked time, balances, leave-at, the flex balance, which live actions
-  are valid, and validation of every write.
-- **Frontend:** presentation and display-related logic: formatting dates and durations, sorting,
-  grouping, filtering, simple aggregates over data already returned (e.g. an average for a
-  dashboard), a cosmetic ticking clock, and client-side validation for usability.
-- Rule of thumb: if two clients would have to agree on the result, it belongs in the backend. If it
-  only changes how data is shown, it belongs in the frontend. Do not push display concerns into
-  the API just to keep the frontend "dumb".
+- Every non-2xx response and every network failure shows an error toast. The API client throws a typed `ApiError` and a single global handler turns it into a toast, so feature code does not repeat this.
+- Align `ApiError` parsing with the backend's actual error response type: read it in the Rust code before implementing. Show the backend's user-facing message, falling back to a generic message. Never show stack traces or raw response bodies.
+- Exceptions:
+  - 401 redirects to sign-in instead of toasting repeatedly. Deferred until authentication exists (README, "Possible improvements").
+  - Aborted requests show no toast.
+  - Validation errors (400/422) also mark the relevant form fields where the response identifies them.
+- Deduplicate identical toasts fired in quick succession.
+- Use Skeleton's Toast component with one toaster instance exposed from `src/lib/toast.ts` and rendered once in the root layout. Mutations show a short success toast.
 
-## Commands
+## App shell and theming
 
-Run from `backend/`:
+- Mobile first, modern, uncluttered. Test at 360px width before desktop.
+- Navigation: bottom navigation on mobile, side rail or top links from the `md` breakpoint.
+- Theme selector: pick from a small curated list of Skeleton themes plus light/dark/system mode. Apply via `data-theme` on `<html>` and persist the choice in `localStorage`. Set it in an inline script in `app.html` before first paint to avoid a flash. Use system default if not available.
+- Use Skeleton design tokens and presets for color and spacing. No hardcoded colors.
+- The UI text is English.
 
-```bash
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo build
-DATABASE_URL=sqlite:stardate.db cargo run
-```
+## Workflows
 
-From the repo root: `docker compose up -d --build`. Frontend commands are in `web/CLAUDE.md`.
+### Workday (default screen)
 
-Before considering work done: fmt, clippy (no warnings) and build must pass.
+- The main screen answers "what is my state right now?" and offers the next valid action as a large, thumb-friendly primary button: sign in, start/end lunch, start/end break, sign out. Which actions are valid comes from the backend response.
+- Show current status, job, and today's totals as returned by the API. A live ticking counter is acceptable only as a cosmetic display based on a server-provided start timestamp.
+- Support multiple jobs (job selector) and back-dated entries (date and time pickers).
+- Refresh state from the API after every action.
 
-## Conventions
+### History and edits
 
-- JSON: `camelCase` (`#[serde(rename_all = "camelCase")]`), all routes under `/api`.
-- Errors: handlers return `Result<_, AppError>`. No `unwrap`/`expect` in request paths.
-  Client-facing messages are generic; details go to the log via `tracing` with `%e`.
-- SQL: runtime-checked `sqlx::query`/`query_as` with bind parameters. Do not use the `query!`
-  macros (they need a database at build time, which breaks the Docker build).
-- Extractors: handlers use `AppJson`, `AppPath` and `AppQuery` from `extract.rs`, never axum's
-  `Json`, `Path` or `Query`, so rejected requests also return `{"message": ...}`.
-- Current time: use `days::now()` (whole seconds), not `OffsetDateTime::now_utc()`, so computed
-  instants never carry fractions of a second.
-- Versioned resources: responses use `Tagged` (sets `ETag`); `PUT` and `DELETE` take `ExpectedVersion`.
-  A conditional write that affects no rows is followed by a read-only query that picks
-  404 (not found for this user), 412 (stale version) or 409 (wrong state).
-- Transactions: write transactions start with `db::begin_write` (`BEGIN IMMEDIATE`), never
-  `pool.begin()`. Use `pool.begin()` only for read-only transactions that need one consistent
-  snapshot across several queries. Fold preconditions (ownership, version, state) into the
-  write's `WHERE` clause, e.g. `INSERT ... SELECT ... FROM jobs WHERE id = ? AND user_id = ?`.
-- Instants: bind `.unix_timestamp()` (an `i64`), never an `OffsetDateTime`: sqlx encodes it as
-  RFC 3339 text, which the `STRICT` `INTEGER` columns reject. Reading into `OffsetDateTime` works.
-- Request tracing: `.layer(TraceLayer)` only wraps routes added before it. Add new API routes
-  above the layer; `/api/health` stays below it to avoid log noise.
-- Keep calculation logic in a pure module (no I/O, no database) so it is easy to test later.
-- Domain decisions to keep consistent (details in the spec): days keep their schedule snapshot, so
-  schedule edits never change history; open days are left out of the flex balance and summary
-  totals until clocked out; only archived jobs can be deleted, and deleting cascades to all their
-  data.
-- Backend tests are deferred by decision; do not add backend test infrastructure unless asked.
-  The frontend has its own test rules in `web/CLAUDE.md`.
-- Authentication is deferred. Use the seeded user (id 1) and scope all data through
-  `jobs.user_id` so authentication only has to supply the user id later.
+- List entries grouped by day. Use a table from `md` upwards and a card list below it.
+- Edit entries in a Skeleton Dialog, presented as a full-screen sheet on mobile. Support create, edit, and delete (with confirmation).
+- Schedule edits must make the effective date explicit, because changes must never alter historical entries. Follow the backend contract.
+- Client-side validation is for usability only (required fields, formats). The backend is authoritative.
 
-## Working rules
+## UX and accessibility
 
-- Read existing code and follow its conventions before changing anything.
-- Comments explain why, not what. No change-log comments. Remove dead code instead of commenting it out.
-- Never hardcode secrets; never log sensitive data.
-- Keep dependencies minimal, maintained and pinned via `Cargo.lock` (builds use `--locked`).
-- Commits: imperative subject of at most 72 characters, a blank line, then a body that explains why.
-  One logical change per commit: two changes are two `git commit` runs, never two subjects in one
-  message.
-- Branches: work on a feature branch (e.g. the frontend branch); it is squash-merged into the default
-  branch with one clean message when done.
-- Ask before destructive or shared-impact actions: pushing, force-pushing, deleting branches or files,
-  dropping data. Never use `--no-verify`.
-- Migrations: until the first production deploy, `0001_time_tracking.sql` may be edited directly
-  (wipe local databases and `docker compose down -v` afterwards). After that, never edit an applied
-  migration; add a new numbered file. Tables use `STRICT`.
-- Learning project: guide the user and provide code to type; do not edit files in the repo
-  unless asked. Verify proposed code in a scratch copy (build, lint, run) before presenting it.
-  The user commits and pushes; review each pushed commit against what was proposed.
-- Docs: every change comes with its Markdown docs updated (`README.md`, `docs/time-tracking.md`,
-  `CLAUDE.md`, `web/CLAUDE.md`, whichever apply). Hand them over as complete files ready to
-  download, not as edits to type.
+- Loading, empty, and error states for every data view. Disable or show progress on buttons while a request is pending.
+- Use native `<select>`, `<input type="time">`, and `<input type="date">` on mobile unless a Skeleton component is clearly better. Radios use the Skeleton form classes or Segmented Control.
+- Keyboard accessible, visible focus, labelled controls, sufficient contrast in every theme.
 
+## Code quality
+
+- Follow the repository baseline guidelines. Descriptive names, small single-purpose components, no magic values, no dead code, comments explain why.
+- Keep dependencies minimal and pinned. Ask before adding any beyond the stack above.
+
+## Verification
+
+- Run `npm run check` (svelte-check), `npm run lint` (Prettier check and ESLint), `npm test` and `npm run build` before considering work complete and fix errors you introduced.
+- Component tests (`*.svelte.test.ts`) run in Vitest browser mode with Playwright; other tests (`*.test.ts`) run in Node. Browser mode needs Chromium once: `npx playwright install chromium`.
+- Add Vitest tests for the API client (error mapping to toasts; 401 handling once authentication exists) and for non-trivial components. Tests must be deterministic and mock the network.
+
+## Safety
+
+- Do not delete files or branches, force-push, or push code without asking.
+- Do not modify the Dockerfile or backend serving code without asking. Report what the frontend needs from them instead.
+
+# Working rules
+
+- Read and understand `../CLAUDE.md`
+- Since Read the API from the type definitions inside the npm packages (@skeletonlabs/skeleton-svelte ships them). They’re authoritative for v5, but have no usage examples.
+- The Skeleton v5 LLM docs are in `web/lmm/llms-svelte-skeleton.txt` (about 790 KB). Search it for the section you need (e.g. `# Toast`) instead of reading it whole.
+- Usage in this app: `api` from `$lib/api/client` for every request; errors are toasted by the handler set in the root layout, so callers only handle what changes their own UI.
+
+# Tooling
+
+Tooling is npm with ESLint and Prettier.
