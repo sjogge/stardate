@@ -1,9 +1,3 @@
-use crate::{
-    auth::CurrentUser,
-    concurrency::{ExpectedVersion, Tagged, Versioned},
-    error::AppError,
-    extract::{AppJson, AppPath},
-};
 use axum::{
     Router,
     extract::State,
@@ -13,6 +7,13 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use time::OffsetDateTime;
+
+use crate::{
+    auth::CurrentUser,
+    concurrency::{ExpectedVersion, Tagged, Versioned},
+    error::AppError,
+    extract::{AppJson, AppPath},
+};
 
 const MAX_NAME_CHARS: usize = 100;
 

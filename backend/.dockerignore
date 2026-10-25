@@ -1,4 +1,5 @@
 target
+http
 *.db
 *.db-shm
 *.db-wal

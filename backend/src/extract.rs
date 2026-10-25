@@ -12,7 +12,7 @@ use crate::error::AppError;
 #[from_request(via(axum::Json), rejection(AppError))]
 pub struct AppJson<T>(pub T);
 
-// Lets handlers use the same Json type for responses
+// Lets handlers also return AppJson, so one type covers request and response bodies
 impl<T: Serialize> IntoResponse for AppJson<T> {
     fn into_response(self) -> Response {
         axum::Json(self.0).into_response()

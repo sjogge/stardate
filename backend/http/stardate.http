@@ -1,0 +1,178 @@
+### Stardate API requests (VS Code "REST Client" extension: humao.rest-client)
+# Run top to bottom: later requests reuse ids and ETags captured from earlier ones.
+
+@baseUrl = http://localhost:3000/api
+@jsonType = application/json
+# Only needed if the API requires auth; adjust to how auth.rs expects credentials.
+# @token = replace-me
+
+### ---------- Health ----------
+GET {{baseUrl}}/health
+
+### ---------- Jobs ----------
+
+# @name createJob
+POST {{baseUrl}}/jobs
+Content-Type: {{jsonType}}
+
+{
+  "name": "Starlaq Corp"
+}
+
+###
+@jobId = 1
+#{{createJob.response.body.$.id}}
+
+### List jobs
+GET {{baseUrl}}/jobs
+
+### Get one job (response carries ETag and version)
+# @name getJob
+GET {{baseUrl}}/jobs/{{jobId}}
+
+### Rename job (If-Match required, 428 without it, 412 if stale)
+PUT {{baseUrl}}/jobs/{{jobId}}
+Content-Type: {{jsonType}}
+If-Match: "3"
+#{{getJob.response.headers.ETag}}
+
+{
+  "name": "Acme Corp (renamed)"
+}
+
+### Archive job
+POST {{baseUrl}}/jobs/{{jobId}}/archive
+
+### ---------- Schedules ----------
+# Body shape is a guess; align it with the schedule section in docs/time-tracking.md.
+
+# @name createSchedule
+POST {{baseUrl}}/jobs/{{jobId}}/schedules
+Content-Type: {{jsonType}}
+
+{
+  "validFrom": "2026-01-01",
+  "lunchMinutes": 60,
+  "breakMinutes": 30,
+  "lunchPaid": false,
+  "breaksPaid": true,
+  "days": [
+    { "weekday": 1, "workMinutes": 480 },
+    { "weekday": 2, "workMinutes": 480 },
+    { "weekday": 3, "workMinutes": 480 },
+    { "weekday": 4, "workMinutes": 480 },
+    { "weekday": 5, "workMinutes": 480 }
+  ]
+}
+
+###
+@scheduleId = {{createSchedule.response.body.$.id}}
+
+### List schedules
+GET {{baseUrl}}/jobs/{{jobId}}/schedules
+
+### Get schedule
+GET {{baseUrl}}/jobs/{{jobId}}/schedules/{{scheduleId}}
+
+### ---------- Days (back-dated registration) ----------
+
+### Create a day (create-only: 412 if it already exists)
+# @name createDay
+PUT {{baseUrl}}/jobs/{{jobId}}/days/2026-10-23
+Content-Type: {{jsonType}}
+If-None-Match: *
+
+{
+  "kind": "work",
+  "startedAt": "2026-10-23T08:00:00+02:00",
+  "endedAt": "2026-10-23T17:00:00+02:00",
+  "pauses": [
+    { "kind": "lunch", "minutes": 60 },
+    { "kind": "break", "startedAt": "2026-10-23T10:00:00+02:00", "endedAt": "2026-10-23T10:15:00+02:00" }
+  ],
+  "note": "Forgot to clock in"
+}
+
+### Get the day (fresh ETag)
+# @name getDay
+GET {{baseUrl}}/jobs/{{jobId}}/days/2026-10-23
+
+### Replace the day (If-Match with the current version)
+PUT {{baseUrl}}/jobs/{{jobId}}/days/2026-10-23
+Content-Type: {{jsonType}}
+If-Match: {{getDay.response.headers.ETag}}
+
+{
+  "kind": "work",
+  "startedAt": "2026-10-23T08:00:00+02:00",
+  "endedAt": "2026-10-23T16:30:00+02:00",
+  "pauses": [
+    { "kind": "lunch", "minutes": 45 }
+  ],
+  "note": "Corrected end time"
+}
+
+### List days in a range, with totals
+GET {{baseUrl}}/jobs/{{jobId}}/days?from=2026-10-01&to=2026-10-31
+
+### Delete the day
+DELETE {{baseUrl}}/jobs/{{jobId}}/days/2026-10-23
+If-Match: {{getDay.response.headers.ETag}}
+
+### ---------- Live actions (no If-Match needed) ----------
+
+### Clock in (omit "at" to use server time)
+POST {{baseUrl}}/jobs/{{jobId}}/clock-in
+Content-Type: {{jsonType}}
+
+{
+  "workDate": "2026-10-26"
+}
+
+### Start a pause
+POST {{baseUrl}}/jobs/{{jobId}}/pauses/start
+Content-Type: {{jsonType}}
+
+{
+  "kind": "lunch"
+}
+
+### End the running pause
+POST {{baseUrl}}/jobs/{{jobId}}/pauses/end
+Content-Type: {{jsonType}}
+
+{}
+
+### Clock out
+POST {{baseUrl}}/jobs/{{jobId}}/clock-out
+Content-Type: {{jsonType}}
+
+{}
+
+### ---------- Summary, flex, status ----------
+
+### Per-day totals and range totals
+GET {{baseUrl}}/jobs/{{jobId}}/summary?from=2026-10-01&to=2026-10-31
+
+### Flex balance
+GET {{baseUrl}}/jobs/{{jobId}}/flex
+
+### Add a flex adjustment (body shape is a guess; check docs/time-tracking.md)
+# @name createAdjustment
+POST {{baseUrl}}/jobs/{{jobId}}/flex-adjustments
+Content-Type: {{jsonType}}
+
+{
+  "date": "2026-10-24",
+  "minutes": 120,
+  "note": "Carried over from old system"
+}
+
+###
+@adjustmentId = {{createAdjustment.response.body.$.id}}
+
+### List adjustments
+GET {{baseUrl}}/jobs/{{jobId}}/flex-adjustments
+
+### Status across active jobs (UI load)
+GET {{baseUrl}}/status
