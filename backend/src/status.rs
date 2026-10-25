@@ -13,6 +13,7 @@ use crate::{
     error::AppError,
     extract::{AppJson, AppQuery},
     flex,
+    live::{self, LiveAction},
 };
 
 #[derive(Deserialize)]
@@ -28,6 +29,9 @@ pub struct JobStatus {
     job_name: String,
     clocked_in: bool,
     running_pause: Option<RunningPause>,
+    /// The live actions that are valid now. Without `date`, a day already registered
+    /// today is unknown, so `clockIn` may still answer 409.
+    available_actions: Vec<LiveAction>,
     /// The open day, or else the day registered on `date`, if any
     today: Option<DayResponse>,
     /// Closed days and all adjustments; today's open day counts once clocked out
@@ -66,6 +70,7 @@ pub async fn status(
             job_name,
             clocked_in: today.as_ref().is_some_and(DayResponse::is_open),
             running_pause: today.as_ref().and_then(DayResponse::running_pause),
+            available_actions: live::available_actions(today.as_ref()),
             today,
             flex_balance_minutes: calc::whole_minutes(balance.total()),
         });

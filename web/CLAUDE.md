@@ -29,10 +29,10 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 - The backend does as much of the calculations (durations, totals, breaks, overtime, schedule resolution) as possible. The frontend only displays what the API returns and formats it. Never compute business values client-side.
 - Formatting and parsing of dates and times uses `Intl` and ISO 8601 strings. Keep timestamps and time zones as the API provides them.
 - Structure:
-    - `src/lib/api/` typed API client and DTO types
-    - `src/lib/components/` reusable UI
-    - `src/lib/features/<feature>/` feature-specific components and state
-    - `src/routes/` pages only, kept thin
+  - `src/lib/api/` typed API client and DTO types
+  - `src/lib/components/` reusable UI
+  - `src/lib/features/<feature>/` feature-specific components and state
+  - `src/routes/` pages only, kept thin
 - All HTTP goes through one client in `src/lib/api/client.ts`. No `fetch` calls in components.
 - Shared state uses Svelte 5 runes in `.svelte.ts` modules.
 - Never store auth tokens in `localStorage`. Auth uses whatever the backend provides (prefer httpOnly cookie). Never use `{@html}` with API data.
@@ -42,9 +42,9 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 - Every non-2xx response and every network failure shows an error toast. The API client throws a typed `ApiError` and a single global handler turns it into a toast, so feature code does not repeat this.
 - Align `ApiError` parsing with the backend's actual error response type: read it in the Rust code before implementing. Show the backend's user-facing message, falling back to a generic message. Never show stack traces or raw response bodies.
 - Exceptions:
-    - 401 redirects to sign-in instead of toasting repeatedly.
-    - Aborted requests show no toast.
-    - Validation errors (400/422) also mark the relevant form fields where the response identifies them.
+  - 401 redirects to sign-in instead of toasting repeatedly.
+  - Aborted requests show no toast.
+  - Validation errors (400/422) also mark the relevant form fields where the response identifies them.
 - Deduplicate identical toasts fired in quick succession.
 - Use Skeleton's Toast component with one toaster instance exposed from `src/lib/toast.ts` and rendered once in the root layout. Mutations show a short success toast.
 
