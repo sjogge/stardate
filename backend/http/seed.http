@@ -78,6 +78,12 @@ Content-Type: {{jsonType}}
 ### 5. Check the result: one job, three schedule versions ordered by validFrom
 GET {{baseUrl}}/jobs/{{jobId}}
 
+### 5b. Hardcoded job ID for testing
+GET {{baseUrl}}/jobs/1/schedules
+
+### 5c. Get a schedule by ID
+GET {{baseUrl}}/jobs/1/schedules/3
+
 ###
 GET {{baseUrl}}/jobs/{{jobId}}/schedules
 

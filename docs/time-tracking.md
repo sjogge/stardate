@@ -49,7 +49,7 @@ CREATE TABLE jobs (
 
 CREATE TABLE schedules (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id      INTEGER NOT NULL REFERENCES jobs(id),
+    job_id      INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
     valid_from  TEXT    NOT NULL CHECK (date(valid_from) = valid_from),
     -- No defaults: paid or unpaid must be a deliberate choice per employment
     lunch_paid  INTEGER NOT NULL CHECK (lunch_paid IN (0, 1)),
@@ -72,7 +72,7 @@ CREATE TABLE schedule_days (
 
 CREATE TABLE work_days (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id                 INTEGER NOT NULL REFERENCES jobs(id),
+    job_id                 INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
     work_date              TEXT    NOT NULL CHECK (date(work_date) = work_date),
     kind                   TEXT    NOT NULL DEFAULT 'work' CHECK (kind IN ('work', 'flex')),
     started_at             INTEGER,
@@ -120,7 +120,7 @@ CREATE UNIQUE INDEX pauses_one_open
 
 CREATE TABLE flex_adjustments (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id      INTEGER NOT NULL REFERENCES jobs(id),
+    job_id      INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
     adjusted_on TEXT    NOT NULL CHECK (date(adjusted_on) = adjusted_on),
     minutes     INTEGER NOT NULL CHECK (minutes != 0),
     note        TEXT,
@@ -132,8 +132,9 @@ CREATE TABLE flex_adjustments (
 CREATE INDEX flex_adjustments_job ON flex_adjustments(job_id);
 ```
 
-Jobs, schedules and work days have no `ON DELETE CASCADE` from `jobs`: deleting a job with history
-fails with a foreign key violation (409). Jobs are archived instead.
+Deleting a job removes all its data through `ON DELETE CASCADE`: schedules (and their weekday rows),
+work days (and their pauses) and flex adjustments. Only archived jobs can be deleted (409 otherwise),
+so active history cannot be lost by a single request.
 
 ## Rules
 
@@ -226,7 +227,7 @@ All routes under `/api`, JSON in `camelCase`, errors as `{"message": "..."}`.
 | Method           | Path                                         | Purpose                                                                                                 |
 | ---------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | GET, POST        | `/jobs`                                      | List / create jobs                                                                                      |
-| GET, PUT         | `/jobs/{id}`                                 | Get / rename                                                                                            |
+| GET, PUT, DELETE | `/jobs/{id}`                                 | Get / rename / delete (archived jobs only)                                                              |
 | POST             | `/jobs/{id}/archive`                         | Archive (history kept)                                                                                  |
 | GET, POST        | `/jobs/{id}/schedules`                       | List / create schedule versions (with weekday rows)                                                     |
 | GET, PUT, DELETE | `/jobs/{id}/schedules/{scheduleId}`          | Get / edit / delete a version                                                                           |
@@ -278,10 +279,25 @@ per kind, `allowanceMinutes`, `workedMinutes`, `expectedWorkMinutes`, `balanceMi
   Without either header: 428.
 - Clock-in/out and pause start/end need no precondition (they are guarded by state and return 409
   on an invalid state) but they bump the day's version.
-- Multi-statement updates run in a transaction whose first statement is the versioned `UPDATE`,
-  so the SQLite write lock is taken immediately. Roll back if it affects no rows.
 - Implement `If-Match` parsing as a small extractor (e.g. `ExpectedVersion(i64)`), and add
   `AppError::PreconditionFailed` (412) and `AppError::PreconditionRequired` (428).
+
+## Database access
+
+- SQLite runs in WAL mode with `synchronous=NORMAL` (see `db.rs`). Backups use `VACUUM INTO`, not a
+  copy of the main file alone.
+- Preconditions (ownership, version, state) are part of the write statement:
+  `UPDATE ... WHERE id = ? AND version = ? AND job_id IN (SELECT id FROM jobs WHERE user_id = ?)`,
+  `INSERT INTO ... SELECT ... FROM jobs WHERE id = ? AND user_id = ?`. A single conditional write
+  needs no transaction.
+- If a conditional write affects no rows, a read-only follow-up query decides the status: 404 if the
+  row does not exist for this user, 412 if the version differs, 409 if the state is wrong.
+- Multi-statement writes run in a transaction started with `BEGIN IMMEDIATE` (`db::begin_write`),
+  never `pool.begin()`. The write lock is held from the start, so reads inside the transaction cannot
+  go stale (`SQLITE_BUSY_SNAPSHOT`). Roll back if the first write affects no rows.
+- Creating a work day takes the schedule snapshot in the same statement as the insert
+  (`INSERT ... SELECT` joining the schedule valid on that date and its weekday row), so the day can
+  never be created from a half-edited schedule.
 
 ## Suggested implementation order
 
@@ -290,6 +306,7 @@ One commit per step, each building and passing clippy:
 1. Concurrency building blocks (extractor, ETag helper, new error variants).
 2. Migration `0001_time_tracking.sql`; jobs CRUD and archive.
 3. Schedules with weekday rows.
+   - 3b. Delete archived jobs: `ON DELETE CASCADE` from `jobs`, `DELETE /jobs/{id}` with `If-Match`.
 4. Pure calculation module (worked time, balance, leave-at).
 5. Days: GET list/single, PUT, DELETE, including snapshot handling.
 6. Live actions: clock-in/out, pause start/end.

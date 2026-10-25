@@ -106,7 +106,6 @@ pub struct ScheduleRequest {
 
 impl ScheduleRequest {
     fn validate(&self) -> Result<(), AppError> {
-        // No need for order so using HashSet instead of BTreeSet
         let mut seen = HashSet::new();
         for day in &self.days {
             if !(1..=7).contains(&day.weekday) {
@@ -151,6 +150,7 @@ async fn list_schedules(
     user: CurrentUser,
     AppPath(job_id): AppPath<i64>,
 ) -> Result<AppJson<Vec<ScheduleResponse>>, AppError> {
+    // TODO: Could this also be made atomic? As in ensuring and reading in the same query?
     jobs::ensure_owned(&pool, job_id, user.id).await?;
 
     let rows = sqlx::query_as::<_, ScheduleRow>(
@@ -161,6 +161,7 @@ async fn list_schedules(
     .fetch_all(&pool)
     .await?;
 
+    // TODO: Explain why to queries are needed? Im just wondering what is going on.
     // One query for the weekday rows of all schedules instead of one per schedule
     let day_rows = sqlx::query_as::<_, ScheduleDayRow>(
         "SELECT d.schedule_id, d.weekday, d.work_minutes, d.lunch_minutes, d.break_minutes \

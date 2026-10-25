@@ -20,7 +20,7 @@ CREATE TABLE jobs (
 
 CREATE TABLE schedules (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id      INTEGER NOT NULL REFERENCES jobs(id),
+    job_id      INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
     valid_from  TEXT    NOT NULL CHECK (date(valid_from) = valid_from),
     -- No defaults: paid or unpaid must be a deliberate choice per employment
     lunch_paid  INTEGER NOT NULL CHECK (lunch_paid IN (0, 1)),
@@ -43,7 +43,7 @@ CREATE TABLE schedule_days (
 
 CREATE TABLE work_days (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id                 INTEGER NOT NULL REFERENCES jobs(id),
+    job_id                 INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
     work_date              TEXT    NOT NULL CHECK (date(work_date) = work_date),
     kind                   TEXT    NOT NULL DEFAULT 'work' CHECK (kind IN ('work', 'flex')),
     started_at             INTEGER,
@@ -91,7 +91,7 @@ CREATE UNIQUE INDEX pauses_one_open
 
 CREATE TABLE flex_adjustments (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id      INTEGER NOT NULL REFERENCES jobs(id),
+    job_id      INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
     adjusted_on TEXT    NOT NULL CHECK (date(adjusted_on) = adjusted_on),
     minutes     INTEGER NOT NULL CHECK (minutes != 0),
     note        TEXT,

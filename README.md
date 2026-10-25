@@ -17,8 +17,8 @@ small: one Rust binary with SQLite compiled in.
 | Backend infrastructure (config, DB, migrations, logging, errors, health check, graceful shutdown) | Done                                               |
 | Docker image + Compose                                                                            | Done                                               |
 | Data model and schema                                                                             | Done (`0001_time_tracking.sql`)                    |
-| API: jobs                                                                                         | Done                                               |
-| API: schedules, days, clock-in/out, pauses, summary, flex, status                                 | In progress                                        |
+| API: jobs, schedules                                                                              | Done                                               |
+| API: days, clock-in/out, pauses, summary, flex, status                                            | In progress                                        |
 | Frontend (Svelte)                                                                                 | Not started                                        |
 | Tests                                                                                             | Later                                              |
 | Authentication                                                                                    | Later. **Do not expose beyond the LAN until then** |
@@ -43,15 +43,18 @@ stardate/
 │   ├── Dockerfile           # multi-stage: rust:alpine build -> alpine runtime
 │   ├── .dockerignore
 │   ├── migrations/          # SQL migrations, embedded in the binary at compile time
+│   ├── http/                # REST Client requests: seed.http, stardate.http
 │   └── src/
 │       ├── main.rs          # startup, router, logging, graceful shutdown
 │       ├── config.rs        # configuration from environment variables
-│       ├── db.rs            # SQLite connection pool and pragmas
+│       ├── db.rs            # SQLite pool, pragmas, begin_write (BEGIN IMMEDIATE)
 │       ├── error.rs         # AppError -> HTTP response mapping
+│       ├── extract.rs       # AppJson / AppPath: axum extractors with JSON errors
 │       ├── auth.rs          # CurrentUser extractor (seeded user until auth exists)
 │       ├── concurrency.rs   # If-Match extractor and ETag responses
 │       ├── health.rs        # GET /api/health
-│       └── jobs.rs          # jobs API
+│       ├── jobs.rs          # jobs API
+│       └── schedules.rs     # schedules API (with weekday rows)
 ├── docs/
 │   └── time-tracking.md     # domain and API specification
 ├── compose.yaml
@@ -59,8 +62,7 @@ stardate/
 └── README.md
 ```
 
-Planned additions: modules for schedules, days, flex and status; a pure
-calculation module; a `frontend/` folder whose build is served by axum from the
+Planned additions: modules for days, flex and status; a pure calculation module; a `frontend/` folder whose build is served by axum from the
 same container.
 
 ## Configuration
@@ -103,6 +105,15 @@ curl localhost:3000/api/health
 Data lives in the `stardate-data` named volume and survives rebuilds.
 `docker compose down -v` **deletes the database**.
 
+### Trying the API
+
+The `backend/http/` folder has requests for the VS Code
+[REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client)
+extension:
+
+- `seed.http` builds one job with a schedule history on an empty database.
+- `stardate.http` exercises every implemented endpoint and the expected errors.
+
 ### Inspecting the container
 
 ```sh
@@ -118,19 +129,25 @@ UTC; dates are `YYYY-MM-DD`.
 
 ### Implemented
 
-| Method | Path                     | Description                                     |
-| ------ | ------------------------ | ----------------------------------------------- |
-| GET    | `/api/health`            | 200 if the app and database respond             |
-| GET    | `/api/jobs`              | List jobs, active first, then archived          |
-| POST   | `/api/jobs`              | Create a job: `{ "name": "..." }`               |
-| GET    | `/api/jobs/{id}`         | Get a job                                       |
-| PUT    | `/api/jobs/{id}`         | Rename a job (requires `If-Match`)              |
-| POST   | `/api/jobs/{id}/archive` | Archive a job, keeping its history (idempotent) |
+| Method | Path                                    | Description                                                                        |
+| ------ | --------------------------------------- | ---------------------------------------------------------------------------------- |
+| GET    | `/api/health`                           | 200 if the app and database respond                                                |
+| GET    | `/api/jobs`                             | List jobs, active first, then archived                                             |
+| POST   | `/api/jobs`                             | Create a job: `{ "name": "..." }`                                                  |
+| GET    | `/api/jobs/{id}`                        | Get a job                                                                          |
+| PUT    | `/api/jobs/{id}`                        | Rename a job (requires `If-Match`)                                                 |
+| DELETE | `/api/jobs/{id}`                        | Delete an archived job and all its data (requires `If-Match`)                      |
+| POST   | `/api/jobs/{id}/archive`                | Archive a job, keeping its history (idempotent)                                    |
+| GET    | `/api/jobs/{id}/schedules`              | List schedule versions, ordered by `validFrom`, with weekday rows                  |
+| POST   | `/api/jobs/{id}/schedules`              | Create a schedule version                                                          |
+| GET    | `/api/jobs/{id}/schedules/{scheduleId}` | Get a schedule version                                                             |
+| PUT    | `/api/jobs/{id}/schedules/{scheduleId}` | Replace a schedule version and its weekday rows (requires `If-Match`)              |
+| DELETE | `/api/jobs/{id}/schedules/{scheduleId}` | Delete a schedule version (requires `If-Match`); existing days keep their snapshot |
 
 ### Planned
 
-Schedules, days, clock-in/out, pauses, summary, flex balance and adjustments, and
-status. See the API section of [`docs/time-tracking.md`](docs/time-tracking.md).
+Deleting days, clock-in/out, pauses, summary, flex balance and
+adjustments, and status. See the API section of [`docs/time-tracking.md`](docs/time-tracking.md).
 
 ### Optimistic concurrency
 
@@ -147,7 +164,7 @@ Errors are returned as JSON `{ "message": "..." }`:
 | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
 | 400    | Validation failed, a CHECK / NOT NULL constraint was violated, malformed JSON, an invalid path value, or a malformed `If-Match` |
 | 404    | Resource not found                                                                                                              |
-| 409    | Unique or foreign key constraint violated (e.g. duplicate job name)                                                             |
+| 409    | Unique or foreign key constraint violated (e.g. duplicate job name or deleting a job that is not archived)                      |
 | 412    | `If-Match` version is out of date: the resource was modified by another request                                                 |
 | 413    | Request body too large                                                                                                          |
 | 415    | `Content-Type: application/json` missing on a request with a JSON body                                                          |
@@ -155,6 +172,54 @@ Errors are returned as JSON `{ "message": "..." }`:
 | 428    | `If-Match` header is missing on an update that requires it                                                                      |
 | 500    | Unexpected database error (details only in the server log)                                                                      |
 | 503    | Database connection pool exhausted (retry later)                                                                                |
+
+## Design decisions
+
+### SQLite in WAL mode
+
+The database runs in WAL (write-ahead log) mode with `synchronous=NORMAL`, set in `db.rs`.
+Writes are appended to `stardate.db-wal` and folded into the main file at checkpoints.
+
+- **Why:** reads are never blocked by a write, and there are fewer disk syncs than with the
+  rollback journal, which means less SD card wear on the Pi.
+- **Trade-offs:**
+    - Three files (`stardate.db`, `-wal`, `-shm`). A backup must use `VACUUM INTO` or copy all
+      three with the app stopped; copying only `stardate.db` can miss recent writes.
+    - With `synchronous=NORMAL`, a power cut can lose the last few commits, but never corrupts
+      the database. `synchronous=FULL` would sync every commit, at the cost of more writes.
+    - WAL does not work on network filesystems. The database must stay on a local volume.
+- A clean shutdown (`pool.close()` in graceful shutdown) checkpoints the WAL into the main file.
+
+### Write transactions start with `BEGIN IMMEDIATE`
+
+SQLite allows one writer at a time for the whole database. A plain `BEGIN` takes no lock; the
+first statement takes a snapshot. If that statement is a read and another request commits before
+the transaction's first write, the write fails at once with `SQLITE_BUSY_SNAPSHOT`.
+
+- Every transaction that writes starts with `db::begin_write(&pool)`, which sends
+  `BEGIN IMMEDIATE`: the write lock is held from the start, so reads inside the transaction can
+  never go stale. Never use `pool.begin()` for writes.
+- Another write transaction waits up to `busy_timeout` (5 s). Reads are not blocked.
+- Keep transactions short: only SQL between `begin_write` and `commit`.
+
+### Conditional writes
+
+Preconditions go into the write statement itself instead of a separate check before it:
+
+| Precondition                     | Example                                                                                |
+| -------------------------------- | -------------------------------------------------------------------------------------- |
+| Ownership on insert              | `INSERT INTO schedules (...) SELECT id, ?, ... FROM jobs WHERE id = ? AND user_id = ?` |
+| Ownership on update/delete       | `... AND job_id IN (SELECT id FROM jobs WHERE user_id = ?)`                            |
+| Version (optimistic concurrency) | `UPDATE ... WHERE id = ? AND version = ?`                                              |
+| State                            | `DELETE FROM jobs WHERE ... AND archived_at IS NOT NULL`                               |
+
+- **Why:** the check and the write are one atomic step, so there is no gap between them for
+  another request to change the data (no check-then-act race).
+- A single conditional write needs no transaction.
+- **0 rows affected** means a precondition failed. A read-only follow-up query then picks the
+  status: 404 (doesn't exist for this user), 412 (stale version) or 409 (wrong state).
+- Reads are scoped the same way, by joining through `jobs.user_id`. Authentication will only have
+  to change how `CurrentUser` is resolved.
 
 ## Deploy to the Raspberry Pi
 
@@ -205,7 +270,8 @@ Ideas that are not needed now but are worth knowing about.
 - [x] Replace the `pizza` placeholder and its migration
 - [x] Jobs API with optimistic concurrency
 - [x] JSON error bodies for rejected requests (bad JSON, bad path values)
-- [ ] Schedules API
+- [x] Schedules API
+- [x] Delete archived jobs with all their data (`ON DELETE CASCADE` from `jobs`)
 - [ ] Calculation module (worked time, balance, leave-at)
 - [ ] Days API, clock-in/out and pauses
 - [ ] Summary, flex balance, flex adjustments and status
@@ -214,3 +280,4 @@ Ideas that are not needed now but are worth knowing about.
 - [ ] Authentication
 - [ ] Backups (`VACUUM INTO` + off-device copy) and a `deploy.sh`
 - [ ] CI (fmt, clippy, test, arm64 image build)
+

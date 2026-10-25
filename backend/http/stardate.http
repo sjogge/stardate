@@ -92,6 +92,14 @@ If-Match: {{updateSchedule.response.headers.ETag}}
 ### Archive job (idempotent: a second call returns it unchanged)
 POST {{baseUrl}}/jobs/{{jobId}}/archive
 
+### Delete job (archived jobs only; deletes all its data)
+# @name getArchivedJob
+GET {{baseUrl}}/jobs/{{jobId}}
+
+###
+DELETE {{baseUrl}}/jobs/{{jobId}}
+If-Match: {{getArchivedJob.response.headers.ETag}}
+
 ### ---------- Expected errors ----------
 
 ### 428: update without If-Match

@@ -84,7 +84,7 @@ impl JobRequest {
 pub fn routes() -> Router<SqlitePool> {
     Router::new()
         .route("/", get(list_jobs).post(create_job))
-        .route("/{id}", get(get_job).put(rename_job))
+        .route("/{id}", get(get_job).put(rename_job).delete(delete_job))
         .route("/{id}/archive", post(archive_job))
 }
 
@@ -191,6 +191,44 @@ async fn archive_job(
         Some(row) => Ok(Tagged(row.into())),
         None => get_job(State(pool), user, AppPath(id)).await,
     }
+}
+
+/// Deletes the job and, through ON DELETE CASCADE, all its schedules, days, pauses
+/// and flex adjustments. Only archived jobs can be deleted, so a job is never lost
+/// by a single mistaken request.
+async fn delete_job(
+    State(pool): State<SqlitePool>,
+    user: CurrentUser,
+    AppPath(id): AppPath<i64>,
+    ExpectedVersion(version): ExpectedVersion,
+) -> Result<StatusCode, AppError> {
+    let result = sqlx::query(
+        "DELETE FROM jobs WHERE id = ? AND user_id = ? AND version = ? AND archived_at IS NOT NULL",
+    )
+    .bind(id)
+    .bind(user.id)
+    .bind(version)
+    .execute(&pool)
+    .await?;
+
+    if result.rows_affected() == 1 {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    // Nothing deleted: find out which condition failed
+    let current = sqlx::query_as::<_, (i64, bool)>(
+        "SELECT version, archived_at IS NOT NULL FROM jobs WHERE id = ? AND user_id = ?",
+    )
+    .bind(id)
+    .bind(user.id)
+    .fetch_optional(&pool)
+    .await?;
+
+    Err(match current {
+        None => AppError::NotFound,
+        Some((current_version, _)) if current_version != version => AppError::PreconditionFailed,
+        Some(_) => AppError::Conflict("archive the job before deleting it".into()),
+    })
 }
 
 /// A versioned UPDATE that matched no row: tells "doesn't exist" (404) apart
