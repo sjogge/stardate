@@ -1,18 +1,18 @@
+use crate::{
+    auth::CurrentUser,
+    concurrency::{ExpectedVersion, Tagged, Versioned},
+    error::AppError,
+    extract::{AppJson, AppPath},
+};
 use axum::{
-    Json, Router,
-    extract::{Path, State},
+    Router,
+    extract::State,
     http::StatusCode,
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqlitePool};
 use time::OffsetDateTime;
-
-use crate::{
-    auth::CurrentUser,
-    concurrency::{ExpectedVersion, Tagged, Versioned},
-    error::AppError,
-};
 
 const MAX_NAME_CHARS: usize = 100;
 
@@ -90,7 +90,7 @@ pub fn routes() -> Router<SqlitePool> {
 async fn list_jobs(
     State(pool): State<SqlitePool>,
     user: CurrentUser,
-) -> Result<Json<Vec<JobResponse>>, AppError> {
+) -> Result<AppJson<Vec<JobResponse>>, AppError> {
     // Active jobs first, then archived ones
     let rows = sqlx::query_as::<_, JobRow>(
         "SELECT id, name, archived_at, version, created_at, updated_at FROM jobs WHERE user_id = ? \
@@ -100,13 +100,13 @@ async fn list_jobs(
     .fetch_all(&pool)
     .await?;
 
-    Ok(Json(rows.into_iter().map(JobResponse::from).collect()))
+    Ok(AppJson(rows.into_iter().map(JobResponse::from).collect()))
 }
 
 async fn get_job(
     State(pool): State<SqlitePool>,
     user: CurrentUser,
-    Path(id): Path<i64>,
+    AppPath(id): AppPath<i64>,
 ) -> Result<Tagged<JobResponse>, AppError> {
     sqlx::query_as::<_, JobRow>(
         "SELECT id, name, archived_at, version, created_at, updated_at FROM jobs \
@@ -123,7 +123,7 @@ async fn get_job(
 async fn create_job(
     State(pool): State<SqlitePool>,
     user: CurrentUser,
-    Json(request): Json<JobRequest>,
+    AppJson(request): AppJson<JobRequest>,
 ) -> Result<(StatusCode, Tagged<JobResponse>), AppError> {
     let name = request.validated_name()?;
 
@@ -143,9 +143,9 @@ async fn create_job(
 async fn rename_job(
     State(pool): State<SqlitePool>,
     user: CurrentUser,
-    Path(id): Path<i64>,
+    AppPath(id): AppPath<i64>,
     ExpectedVersion(version): ExpectedVersion,
-    Json(request): Json<JobRequest>,
+    AppJson(request): AppJson<JobRequest>,
 ) -> Result<Tagged<JobResponse>, AppError> {
     let name = request.validated_name()?;
 
@@ -174,7 +174,7 @@ async fn rename_job(
 async fn archive_job(
     State(pool): State<SqlitePool>,
     user: CurrentUser,
-    Path(id): Path<i64>,
+    AppPath(id): AppPath<i64>,
 ) -> Result<Tagged<JobResponse>, AppError> {
     let archived = sqlx::query_as::<_, JobRow>(
         "UPDATE jobs SET archived_at = unixepoch(), version = version + 1, updated_at = unixepoch() \
@@ -188,7 +188,7 @@ async fn archive_job(
 
     match archived {
         Some(row) => Ok(Tagged(row.into())),
-        None => get_job(State(pool), user, Path(id)).await,
+        None => get_job(State(pool), user, AppPath(id)).await,
     }
 }
 

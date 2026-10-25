@@ -1,5 +1,6 @@
 use axum::{
     Json,
+    extract::rejection::{JsonRejection, PathRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -15,6 +16,8 @@ pub enum AppError {
     PreconditionFailed,
     // A write that requires If-Match was sent without it
     PreconditionRequired,
+    // axum could not extract the request (bad JSON, wrong content type, bad path value)
+    Rejected(StatusCode, String),
     Database(sqlx::Error),
 }
 
@@ -55,6 +58,20 @@ impl From<sqlx::Error> for AppError {
     }
 }
 
+// Lets the extractors in extract.rs report axum's rejections as AppError.
+// The rejection text describes the request's own problem, so it is safe to return.
+impl From<JsonRejection> for AppError {
+    fn from(rejection: JsonRejection) -> Self {
+        AppError::Rejected(rejection.status(), rejection.body_text())
+    }
+}
+
+impl From<PathRejection> for AppError {
+    fn from(rejection: PathRejection) -> Self {
+        AppError::Rejected(rejection.status(), rejection.body_text())
+    }
+}
+
 // Lets Axum turn an AppError into an HTTP response
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
@@ -67,6 +84,7 @@ impl IntoResponse for AppError {
             AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg),
             AppError::NotFound => (StatusCode::NOT_FOUND, "Not Found".to_string()),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, msg),
+            AppError::Rejected(status, msg) => (status, msg),
             AppError::PreconditionFailed => (
                 StatusCode::PRECONDITION_FAILED,
                 "Resource was modified by another request; reload and retry".to_string(),

@@ -143,15 +143,18 @@ and the client reloads and retries.
 
 Errors are returned as JSON `{ "message": "..." }`:
 
-| Status | When                                                                                      |
-| ------ | ----------------------------------------------------------------------------------------- |
-| 400    | Validation failed, a CHECK / NOT NULL constraint was violated, or `If-Match` is malformed |
-| 404    | Resource not found                                                                        |
-| 409    | Unique or foreign key constraint violated (e.g. duplicate job name)                       |
-| 412    | `If-Match` version is out of date: the resource was modified by another request           |
-| 428    | `If-Match` header is missing on an update that requires it                                |
-| 503    | Database connection pool exhausted (retry later)                                          |
-| 500    | Unexpected database error (details only in the server log)                                |
+| Status | When                                                                                                                            |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | Validation failed, a CHECK / NOT NULL constraint was violated, malformed JSON, an invalid path value, or a malformed `If-Match` |
+| 413    | Request body too large                                                                                                          |
+| 415    | `Content-Type: application/json` missing on a request with a JSON body                                                          |
+| 422    | JSON is valid but has the wrong shape (e.g. a missing or mistyped field)                                                        |
+| 404    | Resource not found                                                                                                              |
+| 409    | Unique or foreign key constraint violated (e.g. duplicate job name)                                                             |
+| 412    | `If-Match` version is out of date: the resource was modified by another request                                                 |
+| 428    | `If-Match` header is missing on an update that requires it                                                                      |
+| 503    | Database connection pool exhausted (retry later)                                                                                |
+| 500    | Unexpected database error (details only in the server log)                                                                      |
 
 ## Deploy to the Raspberry Pi
 
@@ -183,7 +186,7 @@ ssh pi 'cd ~/stardate && docker compose up -d'
 - [x] Data model: jobs, versioned schedules, work days, pauses, flex adjustments (UTC instants)
 - [x] Replace the `pizza` placeholder and its migration
 - [x] Jobs API with optimistic concurrency
-- [ ] JSON error bodies for rejected requests (bad JSON, bad path values)
+- [x] JSON error bodies for rejected requests (bad JSON, bad path values)
 - [ ] Schedules API
 - [ ] Calculation module (worked time, balance, leave-at)
 - [ ] Days API, clock-in/out and pauses

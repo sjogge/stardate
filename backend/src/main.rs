@@ -3,6 +3,7 @@ mod concurrency;
 mod config;
 mod db;
 mod error;
+mod extract;
 mod health;
 mod jobs;
 
