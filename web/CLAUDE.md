@@ -54,6 +54,7 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 - Navigation: bottom navigation on mobile, side rail or top links from the `md` breakpoint.
 - Theme selector: pick from a small curated list of Skeleton themes plus light/dark/system mode. Apply via `data-theme` on `<html>` and persist the choice in `localStorage`. Set it in an inline script in `app.html` before first paint to avoid a flash. Use system default if not available.
 - Use Skeleton design tokens and presets for color and spacing. No hardcoded colors.
+- The UI text is English.
 
 ## Workflows
 
@@ -91,3 +92,13 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 
 - Do not delete files or branches, force-push, or push code without asking.
 - Do not modify the Dockerfile or backend serving code without asking. Report what the frontend needs from them instead.
+
+# Working rules
+
+- Read and understand `../CLAUDE.md`
+- Since Read the API from the type definitions inside the npm packages (@skeletonlabs/skeleton-svelte ships them). They’re authoritative for v5, but have no usage examples.
+- The human user paste the relevant parts of https://www.skeleton.dev/docs/svelte/resources/llms when we need them.
+
+# Tooling
+
+Tooling is npm with ESLint and Prettier.

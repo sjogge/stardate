@@ -6,13 +6,16 @@ Runs as a single Docker container on a Raspberry Pi, so keep resource use and de
 The domain model and API are specified in `docs/time-tracking.md`. Read it before working on
 anything time-tracking related; it is the source of truth for rules and calculations.
 
+Frontend work in `web/` follows `web/CLAUDE.md`. Design decisions and their reasons are in the
+README ("Design decisions"); the roadmap and possible improvements are there too.
+
 ## Stack
 
 - Backend: Rust (edition 2024), Axum 0.8, Tokio, sqlx 0.9 with SQLite, `tracing`, `anyhow` in `main`
 - Time: the `time` crate (`serde-human-readable` feature: dates as `YYYY-MM-DD`). No timezone database
   on the server.
-- Frontend (not created yet): Svelte + Vite SPA, served as static files by Axum later. The SPA stays
-  "dumb": all calculations happen in the backend.
+- Frontend: SvelteKit + Svelte 5 SPA in `web/` (see `web/CLAUDE.md`), served as static files by
+  Axum from the same origin once the pages work.
 - Deployment: multi-stage `backend/Dockerfile` (Alpine, non-root UID 10001), `compose.yaml` with a
   hardened service and the database on a volume at `/data`.
 
@@ -40,12 +43,28 @@ backend/
     summary.rs             # /api/jobs/{job_id}/summary
     flex.rs                # /api/jobs/{job_id}/flex, flex-adjustments; flex::balance
     status.rs              # /api/status
+web/                       # Svelte SPA; its own rules in web/CLAUDE.md
 compose.yaml
-docs/time-tracking.md      # domain spec
+docs/time-tracking.md      # domain and API spec
+README.md                  # setup, API overview, design decisions, roadmap
 ```
 
 Follow the existing pattern: one module per resource with a `routes()` function nested under `/api`,
 row structs with `FromRow`, separate request/response DTOs.
+
+## Responsibility split
+
+The backend is the main driver of the logic, not the only place for it:
+
+- **Backend (authoritative):** business rules and anything that must be consistent for every
+  client: schedule snapshots, worked time, balances, leave-at, the flex balance, which live actions
+  are valid, and validation of every write.
+- **Frontend:** presentation and display-related logic: formatting dates and durations, sorting,
+  grouping, filtering, simple aggregates over data already returned (e.g. an average for a
+  dashboard), a cosmetic ticking clock, and client-side validation for usability.
+- Rule of thumb: if two clients would have to agree on the result, it belongs in the backend. If it
+  only changes how data is shown, it belongs in the frontend. Do not push display concerns into
+  the API just to keep the frontend "dumb".
 
 ## Commands
 
@@ -85,7 +104,12 @@ Before considering work done: fmt, clippy (no warnings) and build must pass.
 - Request tracing: `.layer(TraceLayer)` only wraps routes added before it. Add new API routes
   above the layer; `/api/health` stays below it to avoid log noise.
 - Keep calculation logic in a pure module (no I/O, no database) so it is easy to test later.
-- Tests are deferred by decision; do not add test infrastructure unless asked.
+- Domain decisions to keep consistent (details in the spec): days keep their schedule snapshot, so
+  schedule edits never change history; open days are left out of the flex balance and summary
+  totals until clocked out; only archived jobs can be deleted, and deleting cascades to all their
+  data.
+- Backend tests are deferred by decision; do not add backend test infrastructure unless asked.
+  The frontend has its own test rules in `web/CLAUDE.md`.
 - Authentication is deferred. Use the seeded user (id 1) and scope all data through
   `jobs.user_id` so authentication only has to supply the user id later.
 
@@ -95,10 +119,17 @@ Before considering work done: fmt, clippy (no warnings) and build must pass.
 - Comments explain why, not what. No change-log comments. Remove dead code instead of commenting it out.
 - Never hardcode secrets; never log sensitive data.
 - Keep dependencies minimal, maintained and pinned via `Cargo.lock` (builds use `--locked`).
-- Commits: imperative subject of at most 72 characters, body explains why, one logical change per commit.
+- Commits: imperative subject of at most 72 characters, a blank line, then a body that explains why.
+  One logical change per commit: two changes are two `git commit` runs, never two subjects in one
+  message.
+- Branches: work on a feature branch (e.g. the frontend branch); it is squash-merged into the default
+  branch with one clean message when done.
 - Ask before destructive or shared-impact actions: pushing, force-pushing, deleting branches or files,
   dropping data. Never use `--no-verify`.
 - Migrations: until the first production deploy, `0001_time_tracking.sql` may be edited directly
   (wipe local databases and `docker compose down -v` afterwards). After that, never edit an applied
   migration; add a new numbered file. Tables use `STRICT`.
+- Learning project: guide the user and provide code to type; do not edit files in the repo
+  unless asked. Verify proposed code in a scratch copy (build, lint, run) before presenting it.
+  The user commits and pushes; review each pushed commit against what was proposed.
 
