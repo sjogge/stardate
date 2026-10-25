@@ -69,8 +69,11 @@ stardate/
 │       ├── app.html         # sets theme and light/dark mode before first paint
 │       ├── lib/
 │       │   ├── api/client.ts  # the only fetch: ApiError, If-Match, one global error handler
+│       │   ├── components/    # reusable UI, e.g. AppNavigation (bottom bar / side rail)
+│       │   ├── features/      # per-feature components, e.g. settings/AppearanceSettings
+│       │   ├── theme.svelte.ts  # theme and light/dark/system choice, stored in localStorage
 │       │   └── toast.ts       # the toaster; identical error toasts are shown once
-│       └── routes/          # pages; +layout.ts turns off SSR and prerendering
+│       └── routes/          # thin pages (/, /settings); +layout.ts turns off SSR and prerendering
 ├── docs/
 │   └── time-tracking.md     # domain and API specification
 ├── compose.yaml
@@ -277,6 +280,20 @@ Preconditions go into the write statement itself instead of a separate check bef
 - The list says what is allowed, not what to show first. Picking the primary button (e.g. lunch
   before break) is presentation and stays in the frontend.
 - Without `date`, a day already registered today is unknown, so `clockIn` can still answer 409.
+
+### Theme applied before first paint
+
+The theme and light/dark mode are set on `<html>` (`data-theme`, `data-mode`) by an inline script in
+`web/src/app.html`, before the app loads. After that, `lib/theme.svelte.ts` keeps them up to date.
+
+- **Why:** a script that runs after the app loads would show the default theme for a moment
+  (a flash) on every reload.
+- **Trade-off:** the inline script cannot import TypeScript, so the theme list and the storage keys
+  are in three places: `app.html`, `lib/theme.svelte.ts` and the theme imports in
+  `routes/layout.css`. Each has a comment pointing to the others.
+- Dark mode uses `data-mode` instead of only the OS setting (a `@custom-variant dark` in
+  `layout.css`), so "light" and "dark" can override the OS; "system" follows it, also while the app
+  is open.
 
 ## Deploy to the Raspberry Pi
 
