@@ -16,7 +16,6 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 - Skeleton v5 (`@skeletonlabs/skeleton` + `@skeletonlabs/skeleton-svelte`). Use its Tailwind components and Svelte framework components before writing custom ones.
 - Icons: `@lucide/svelte` (`lucide-svelte` is deprecated).
 - Documentation: https://www.skeleton.dev/docs/svelte/get-started/introduction and the LLM page at https://www.skeleton.dev/docs/svelte/resources/llms. Skeleton v5 differs from v4, so ignore v4 examples. If you cannot read the docs, ask me instead of guessing the API.
-- Local copies LLM's for Svelte and Skeleton are at `web/llm`.
 
 ## Delivery model
 
@@ -43,7 +42,7 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 - Every non-2xx response and every network failure shows an error toast. The API client throws a typed `ApiError` and a single global handler turns it into a toast, so feature code does not repeat this.
 - Align `ApiError` parsing with the backend's actual error response type: read it in the Rust code before implementing. Show the backend's user-facing message, falling back to a generic message. Never show stack traces or raw response bodies.
 - Exceptions:
-  - 401 redirects to sign-in instead of toasting repeatedly.
+  - 401 redirects to sign-in instead of toasting repeatedly. Deferred until authentication exists (README, "Possible improvements").
   - Aborted requests show no toast.
   - Validation errors (400/422) also mark the relevant form fields where the response identifies them.
 - Deduplicate identical toasts fired in quick succession.
@@ -88,7 +87,7 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 
 - Run `npm run check` (svelte-check), `npm run lint` (Prettier check and ESLint), `npm test` and `npm run build` before considering work complete and fix errors you introduced.
 - Component tests (`*.svelte.test.ts`) run in Vitest browser mode with Playwright; other tests (`*.test.ts`) run in Node. Browser mode needs Chromium once: `npx playwright install chromium`.
-- Add Vitest tests for the API client (error mapping to toasts, 401 handling) and for non-trivial components. Tests must be deterministic and mock the network.
+- Add Vitest tests for the API client (error mapping to toasts; 401 handling once authentication exists) and for non-trivial components. Tests must be deterministic and mock the network.
 
 ## Safety
 
@@ -99,7 +98,8 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 
 - Read and understand `../CLAUDE.md`
 - Since Read the API from the type definitions inside the npm packages (@skeletonlabs/skeleton-svelte ships them). They’re authoritative for v5, but have no usage examples.
-- The human user paste the relevant parts of https://www.skeleton.dev/docs/svelte/resources/llms when we need them.
+- Local LLM docs are in `web/llm/`: `llms-full-svelte.txt` (Svelte and SvelteKit) and `llms-svelte-skeleton.txt` (Skeleton v5). They are large, so search them for the section you need (e.g. `# Toast`) instead of reading them whole.
+- Usage in this app: `api` from `$lib/api/client` for every request; errors are toasted by the handler set in the root layout, so callers only handle what changes their own UI.
 
 # Tooling
 
