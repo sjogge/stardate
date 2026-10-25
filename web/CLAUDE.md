@@ -16,6 +16,7 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 - Skeleton v5 (`@skeletonlabs/skeleton` + `@skeletonlabs/skeleton-svelte`). Use its Tailwind components and Svelte framework components before writing custom ones.
 - Icons: `@lucide/svelte` (`lucide-svelte` is deprecated).
 - Documentation: https://www.skeleton.dev/docs/svelte/get-started/introduction and the LLM page at https://www.skeleton.dev/docs/svelte/resources/llms. Skeleton v5 differs from v4, so ignore v4 examples. If you cannot read the docs, ask me instead of guessing the API.
+- Local copies LLM's for Svelte and Skeleton are at `web/llm`.
 
 ## Delivery model
 
