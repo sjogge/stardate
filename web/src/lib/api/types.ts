@@ -99,3 +99,21 @@ export interface JobStatus {
 	/** Closed days and all adjustments; an open day counts once clocked out */
 	flexBalanceMinutes: number;
 }
+
+/** Sums of the closed days in a range, plus the flex adjustments dated in it */
+export interface RangeTotals {
+	workDays: number;
+	flexDays: number;
+	workedMinutes: number;
+	expectedWorkMinutes: number;
+	daysBalanceMinutes: number;
+	adjustmentsMinutes: number;
+	balanceMinutes: number;
+}
+
+/** `GET /jobs/{id}/summary`; only the totals are used, the days come from `/days` */
+export interface Summary {
+	from: string;
+	to: string;
+	totals: RangeTotals;
+}

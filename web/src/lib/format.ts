@@ -97,6 +97,13 @@ export function formatDate(isoDate: string, locale = textLocale()): string {
 	);
 }
 
+/** A month as English text, e.g. `October 2026`; `month` is 1 for January */
+export function formatMonth(year: number, month: number, locale = textLocale()): string {
+	return new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(
+		new Date(year, month - 1, 1)
+	);
+}
+
 /** An ISO weekday (1 = Monday, 7 = Sunday) as a short English name, e.g. `Mon` */
 export function formatWeekday(isoWeekday: number, locale = textLocale()): string {
 	// January 2024 started on a Monday, so day N of it has ISO weekday N
