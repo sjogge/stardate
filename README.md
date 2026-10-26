@@ -309,6 +309,24 @@ large button, the others are smaller.
   again. Worked time and leave-at are computed by the server at each load, so there is no client
   clock to drift.
 
+### The day editor
+
+Days are added and edited on the History screen in a dialog (full screen on phones), sent as
+`PUT /jobs/{id}/days/{date}`.
+
+- **Times are local and relative to the work date.** An end or pause time before the start is on the
+  next calendar day, so a shift from 22:00 to 06:00 needs no second date field. "Next day" is the
+  next calendar date, not 24 hours later, so a night across a daylight saving change stays right.
+- **A pause is either timed (start and end) or a length** (`0:45`), matching the API. An empty end
+  keeps the day open.
+- **Create cannot overwrite:** a new day is sent with `If-None-Match: *`, an edit with `If-Match`.
+  A date already in the shown month is caught in the form, since the backend's 412 only says the
+  resource changed.
+- **The date of a registered day is fixed**, as in the API: moving a day means deleting it and adding
+  it again, because its schedule snapshot depends on the date.
+- The snapshot overrides (`expected`, `refreshExpected`) are not in the form yet (see Possible
+  improvements).
+
 ### English text, local clock times
 
 The UI text is English, including weekday and month names (`format.ts`, `textLocale`): an English
@@ -435,6 +453,15 @@ Ideas that are not needed now but are worth knowing about.
   rows, a table) would make loading feel faster and keep the layout from jumping when the data
   arrives. Skeleton's `placeholder` class can be combined into such shapes per screen.
 
+- **Clear message when a new day's date is taken.** `PUT /jobs/{id}/days/{date}` with
+  `If-None-Match: *` answers 412 with the generic "Resource was modified by another request" when
+  the day exists. A 409 "a day is already registered on this date" would explain it; the form only
+  catches dates in the month it shows.
+
+- **Expected times per day in the day editor.** The API can override a day's snapshot (`expected`)
+  or re-take it from the current schedule (`refreshExpected`), e.g. after fixing a schedule that was
+  wrong when the day was registered. The form does not offer either yet.
+
 ## Roadmap
 
 - [x] Data model: jobs, versioned schedules, work days, pauses, flex adjustments (UTC instants)
@@ -453,7 +480,7 @@ Ideas that are not needed now but are worth knowing about.
     - [x] Workday screen: status per job, live actions
     - [x] Back-dated entries (date and time pickers)
     - [x] History: days and totals per month
-    - [ ] Edit days: create, edit, delete
+    - [x] Edit days: create, edit, delete
     - [x] Jobs: create, rename, archive, delete
     - [x] Schedules per job
     - [ ] Served by axum from the same container
