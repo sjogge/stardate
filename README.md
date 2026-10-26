@@ -69,8 +69,10 @@ stardate/
 │       ├── app.html         # sets theme and light/dark mode before first paint
 │       ├── lib/
 │       │   ├── api/client.ts  # the only fetch: ApiError, If-Match, one global error handler
+│       │   ├── api/types.ts   # response types, matching the Rust DTOs
 │       │   ├── components/    # reusable UI, e.g. AppNavigation (bottom bar / side rail)
-│       │   ├── features/      # per-feature components, e.g. settings/AppearanceSettings
+│       │   ├── features/      # per feature: workday/ (Today screen), settings/
+│       │   ├── format.ts      # display formatting: durations, balances, local times and dates
 │       │   ├── theme.svelte.ts  # theme and light/dark/system choice, stored in localStorage
 │       │   └── toast.ts       # the toaster; identical error toasts are shown once
 │       └── routes/          # thin pages (/, /settings); +layout.ts turns off SSR and prerendering
@@ -281,6 +283,31 @@ Preconditions go into the write statement itself instead of a separate check bef
   before break) is presentation and stays in the frontend.
 - Without `date`, a day already registered today is unknown, so `clockIn` can still answer 409.
 
+### Versions travel in the body; `If-Match` sends them back
+
+Versioned resources return their version twice: in the body (`version`) and in the `ETag` header.
+The frontend reads the body and sends the version back in the standard `If-Match` header.
+
+- **Why not read the `ETag` header:** list responses (e.g. `GET /jobs/{id}/days`) hold many
+  versioned items but can have only one header, so the body version is needed anyway. Reading it
+  everywhere keeps one way of doing it, and the version stays with its data in Svelte state.
+- **Why the backend still sends `ETag`:** it costs nothing and lets generic HTTP tools use it.
+  Conditional `GET` (`If-None-Match`, 304) is not used: responses are small and the app always
+  wants fresh data.
+
+### The workday screen picks the primary button, the backend picks what is allowed
+
+`GET /api/status` lists the allowed live actions per job (`availableActions`). The frontend only
+decides how to show them (`features/workday/actions.ts`): the most likely next step becomes the
+large button, the others are smaller.
+
+- Order: clock in; else end the running pause; else start lunch while lunch is expected and none
+  is logged; else clock out. Starting a break or an absence stays available as a smaller button.
+- The screen reloads the status after every action (also after a failed one, since the state may
+  have changed on another device), every minute while visible, and when the tab becomes visible
+  again. Worked time and leave-at are computed by the server at each load, so there is no client
+  clock to drift.
+
 ### Theme applied before first paint
 
 The theme and light/dark mode are set on `<html>` (`data-theme`, `data-mode`) by an inline script in
@@ -365,6 +392,12 @@ Ideas that are not needed now but are worth knowing about.
 - [x] Summary, flex balance, flex adjustments and status
 - [ ] Tests
 - [ ] Svelte frontend, served by axum
+    - [x] Scaffold, API client with error toasts, app shell with theme settings
+    - [x] Workday screen: status per job, live actions
+    - [ ] Back-dated entries (date and time pickers)
+    - [ ] History and edits
+    - [ ] Jobs and schedules
+    - [ ] Served by axum from the same container
 - [ ] Authentication
 - [ ] Backups (`VACUUM INTO` + off-device copy) and a `deploy.sh`
 - [ ] CI (fmt, clippy, test, arm64 image build)
