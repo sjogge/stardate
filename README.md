@@ -70,12 +70,12 @@ stardate/
 │       ├── lib/
 │       │   ├── api/client.ts  # the only fetch: ApiError, If-Match, one global error handler
 │       │   ├── api/types.ts   # response types, matching the Rust DTOs
-│       │   ├── components/    # reusable UI, e.g. AppNavigation (bottom bar / side rail)
-│       │   ├── features/      # per feature: workday/ (Today screen), settings/
+│       │   ├── components/    # reusable UI: AppNavigation (bottom bar / side rail), ConfirmDialog
+│       │   ├── features/      # per feature: workday/ (Today), jobs/, settings/
 │       │   ├── format.ts      # display formatting: durations, balances, local times and dates
 │       │   ├── theme.svelte.ts  # theme and light/dark/system choice, stored in localStorage
 │       │   └── toast.ts       # the toaster; identical error toasts are shown once
-│       └── routes/          # thin pages (/, /settings); +layout.ts turns off SSR and prerendering
+│       └── routes/          # thin pages (/, /jobs, /settings); +layout.ts turns off SSR and prerendering
 ├── docs/
 │   └── time-tracking.md     # domain and API specification
 ├── compose.yaml
@@ -393,6 +393,11 @@ Ideas that are not needed now but are worth knowing about.
   `web/src/lib/api/client.ts`, send a 401 to the sign-in page instead of the error handler, and add
   a client test for it.
 
+- **Friendlier message for a duplicate job name.** Creating or renaming a job to a name that
+  already exists answers 409 with the generic "resource already exists" (`AppError` maps every
+  unique violation to it). `jobs.rs` could check for that case and answer "a job with this name
+  already exists" instead, so the toast says what to change.
+
 ## Roadmap
 
 - [x] Data model: jobs, versioned schedules, work days, pauses, flex adjustments (UTC instants)
@@ -411,7 +416,8 @@ Ideas that are not needed now but are worth knowing about.
     - [x] Workday screen: status per job, live actions
     - [x] Back-dated entries (date and time pickers)
     - [ ] History and edits
-    - [ ] Jobs and schedules
+    - [x] Jobs: create, rename, archive, delete
+    - [ ] Schedules per job
     - [ ] Served by axum from the same container
 - [ ] Authentication
 - [ ] Backups (`VACUUM INTO` + off-device copy) and a `deploy.sh`
