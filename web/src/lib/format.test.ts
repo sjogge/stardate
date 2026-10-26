@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+	formatDate,
 	formatBalance,
 	formatDuration,
 	formatShortDate,
 	formatTime,
 	localIsoDate,
+	formatWeekday,
 	localTimeOfDay,
+	parseDuration,
 	toInstant
 } from './format';
 
@@ -47,5 +50,29 @@ describe('format', () => {
 
 	it('formats a date with its weekday, on the local calendar day', () => {
 		expect(formatShortDate('2026-10-25', 'en-GB')).toBe('Sun 25 Oct');
+	});
+
+	it('formats a date with its year', () => {
+		expect(formatDate('2026-10-26', 'en-GB')).toBe('26 Oct 2026');
+	});
+
+	it('names ISO weekdays from Monday to Sunday', () => {
+		expect(formatWeekday(1, 'en-GB')).toBe('Mon');
+		expect(formatWeekday(7, 'en-GB')).toBe('Sun');
+	});
+
+	it('reads typed durations as minutes', () => {
+		expect(parseDuration('8')).toBe(480);
+		expect(parseDuration(' 7:30 ')).toBe(450);
+		expect(parseDuration('0:45')).toBe(45);
+		expect(parseDuration('')).toBe(0);
+		expect(parseDuration('24:00')).toBe(1440);
+	});
+
+	it('rejects text that is not a duration of at most a day', () => {
+		expect(parseDuration('7.5')).toBeUndefined();
+		expect(parseDuration('8:60')).toBeUndefined();
+		expect(parseDuration('24:01')).toBeUndefined();
+		expect(parseDuration('-1')).toBeUndefined();
 	});
 });

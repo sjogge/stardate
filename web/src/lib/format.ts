@@ -2,6 +2,10 @@
 
 const MINUTES_PER_HOUR = 60;
 
+const MAX_MINUTES_PER_DAY = 24 * MINUTES_PER_HOUR;
+/** `8`, `8:00`, `7:30` or `0:45` */
+const DURATION_PATTERN = /^(\d{1,2})(?::([0-5]\d))?$/;
+
 /** The local calendar date as `YYYY-MM-DD`, which the API expects for "today" */
 export function localIsoDate(date: Date): string {
 	const year = date.getFullYear();
@@ -72,4 +76,32 @@ export function formatShortDate(isoDate: string, locale?: string): string {
 		day: 'numeric',
 		month: 'short'
 	}).format(new Date(`${isoDate}T00:00`));
+}
+
+/** A `YYYY-MM-DD` date as a local date with year, e.g. `26 Oct 2026` */
+export function formatDate(isoDate: string, locale?: string): string {
+	return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(
+		new Date(`${isoDate}T00:00`)
+	);
+}
+
+/** An ISO weekday (1 = Monday, 7 = Sunday) as a short local name, e.g. `Mon` */
+export function formatWeekday(isoWeekday: number, locale?: string): string {
+	// January 2024 started on a Monday, so day N of it has ISO weekday N
+	return new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(
+		new Date(2024, 0, isoWeekday)
+	);
+}
+
+/**
+ * Reads a typed duration (`8`, `8:00`, `0:45`) as minutes; an empty field is 0.
+ * Undefined if it is not a duration of at most 24 hours.
+ */
+export function parseDuration(text: string): number | undefined {
+	const trimmed = text.trim();
+	if (trimmed === '') return 0;
+	const match = DURATION_PATTERN.exec(trimmed);
+	if (!match) return undefined;
+	const minutes = Number(match[1]) * MINUTES_PER_HOUR + Number(match[2] ?? 0);
+	return minutes <= MAX_MINUTES_PER_DAY ? minutes : undefined;
 }

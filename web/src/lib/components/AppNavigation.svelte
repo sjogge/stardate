@@ -8,6 +8,12 @@
 	// Tailwind's `md` breakpoint: a bottom bar on phones, a side rail from tablets up
 	const wideScreen = new MediaQuery('(min-width: 48rem)');
 
+	/** The link's page or a page below it, e.g. a job's schedules under Jobs */
+	function isCurrent(href: string): boolean {
+		const path = page.url.pathname;
+		return path === href || (href !== resolve('/') && path.startsWith(`${href}/`));
+	}
+
 	const links = [
 		{ label: 'Today', href: resolve('/'), icon: Clock },
 		{ label: 'Jobs', href: resolve('/jobs'), icon: Briefcase },
@@ -21,7 +27,7 @@
 			{@const Icon = link.icon}
 			<Navigation.TriggerAnchor
 				href={link.href}
-				aria-current={page.url.pathname === link.href ? 'page' : undefined}
+				aria-current={isCurrent(link.href) ? 'page' : undefined}
 				class="aria-[current=page]:preset-tonal-primary"
 			>
 				<Icon class="size-5" aria-hidden="true" />

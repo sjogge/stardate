@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Archive, Pencil, Trash2 } from '@lucide/svelte';
+	import { resolve } from '$app/paths';
+	import { Archive, CalendarDays, Pencil, Trash2 } from '@lucide/svelte';
 	import type { Job } from '$lib/api/types';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import JobNameForm from './JobNameForm.svelte';
@@ -31,6 +32,14 @@
 		<div class="flex items-center gap-2">
 			<span class="grow truncate">{job.name}</span>
 			{#if job.archivedAt === null}
+				<a
+					class="btn-icon preset-tonal"
+					href={resolve('/jobs/[jobId=integer]', { jobId: String(job.id) })}
+					aria-label="Schedules for {job.name}"
+					title="Schedules"
+				>
+					<CalendarDays class="size-4" aria-hidden="true" />
+				</a>
 				<button
 					type="button"
 					class="btn-icon preset-tonal"

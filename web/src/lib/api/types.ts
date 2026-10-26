@@ -11,6 +11,27 @@ export interface Job {
 	updatedAt: string;
 }
 
+export interface ScheduleDay {
+	/** ISO 8601 weekday: 1 = Monday, 7 = Sunday */
+	weekday: number;
+	workMinutes: number;
+	lunchMinutes: number;
+	breakMinutes: number;
+}
+
+/** One version of a job's schedule: it applies from `validFrom` until the next version */
+export interface Schedule {
+	id: number;
+	validFrom: string;
+	lunchPaid: boolean;
+	breaksPaid: boolean;
+	/** Sorted by weekday; a missing weekday means no expected work that day */
+	days: ScheduleDay[];
+	version: number;
+	createdAt: string;
+	updatedAt: string;
+}
+
 export type DayKind = 'work' | 'flex';
 export type PauseKind = 'lunch' | 'break' | 'other';
 export type LiveAction = 'clockIn' | 'clockOut' | 'startPause' | 'endPause';
