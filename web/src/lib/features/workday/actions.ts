@@ -93,17 +93,24 @@ function capitalize(text: string): string {
 	return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** Sends the action; `workDate` is the client's local date, which clock-in needs. */
-export function runAction(jobId: number, action: WorkdayAction, workDate: string): Promise<Day> {
+/** When an action happens: the client's local date (which clock-in needs) and an optional instant */
+export interface ActionTime {
+	workDate: string;
+	/** RFC 3339; the server uses its current time when omitted */
+	at?: string;
+}
+
+export function runAction(jobId: number, action: WorkdayAction, time: ActionTime): Promise<Day> {
 	const job = `/jobs/${jobId}`;
+	const at = time.at === undefined ? {} : { at: time.at };
 	switch (action.type) {
 		case 'clockIn':
-			return api.post<Day>(`${job}/clock-in`, { body: { workDate } });
+			return api.post<Day>(`${job}/clock-in`, { body: { workDate: time.workDate, ...at } });
 		case 'clockOut':
-			return api.post<Day>(`${job}/clock-out`, { body: {} });
+			return api.post<Day>(`${job}/clock-out`, { body: at });
 		case 'startPause':
-			return api.post<Day>(`${job}/pauses/start`, { body: { kind: action.pause } });
+			return api.post<Day>(`${job}/pauses/start`, { body: { kind: action.pause, ...at } });
 		case 'endPause':
-			return api.post<Day>(`${job}/pauses/end`, { body: {} });
+			return api.post<Day>(`${job}/pauses/end`, { body: at });
 	}
 }

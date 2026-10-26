@@ -1,8 +1,8 @@
 import { api } from '$lib/api/client';
 import type { JobStatus } from '$lib/api/types';
-import { todayIsoDate } from '$lib/format';
+import { currentLocalDateTime, toInstant, todayIsoDate, type LocalDateTime } from '$lib/format';
 import { showSuccess } from '$lib/toast';
-import { actionDoneMessage, runAction, type WorkdayAction } from './actions';
+import { actionDoneMessage, runAction, type ActionTime, type WorkdayAction } from './actions';
 
 /** State of the workday screen: every active job's status, and the job being shown. */
 export class Workday {
@@ -14,6 +14,9 @@ export class Workday {
 	/** An action is being sent; its buttons are disabled */
 	pending = $state(false);
 
+	/** Set to back-date the next action (e.g. a forgotten clock-in); otherwise actions happen now */
+	customTime = $state<LocalDateTime>();
+
 	#loadController: AbortController | undefined;
 
 	/** The chosen job; until one is chosen, the job you are clocked in on, else the first */
@@ -23,6 +26,15 @@ export class Workday {
 			this.statuses.find((status) => status.clockedIn) ??
 			this.statuses[0]
 		);
+	}
+
+	/** False while a custom date or time is incomplete, so no action can be sent */
+	get timeIsValid(): boolean {
+		return this.customTime === undefined || toInstant(this.customTime) !== undefined;
+	}
+
+	useCustomTime(enabled: boolean): void {
+		this.customTime = enabled ? currentLocalDateTime() : undefined;
 	}
 
 	async load(): Promise<void> {
@@ -47,12 +59,16 @@ export class Workday {
 
 	async run(action: WorkdayAction): Promise<void> {
 		const job = this.selected;
-		if (!job || this.pending) return;
+		const time = this.#actionTime();
+		if (!job || !time || this.pending) return;
 
 		this.pending = true;
 		try {
-			await runAction(job.jobId, action, todayIsoDate());
-			showSuccess(actionDoneMessage(action));
+			await runAction(job.jobId, action, time);
+			const message = actionDoneMessage(action);
+			showSuccess(this.customTime ? `${message} at ${this.customTime.time}` : message);
+			// A back-dated time is for one action; the next one happens now again
+			this.customTime = undefined;
 		} catch {
 			// Already toasted by the client's error handler
 		} finally {
@@ -60,5 +76,11 @@ export class Workday {
 			await this.load();
 			this.pending = false;
 		}
+	}
+
+	#actionTime(): ActionTime | undefined {
+		if (!this.customTime) return { workDate: todayIsoDate() };
+		const at = toInstant(this.customTime);
+		return at === undefined ? undefined : { workDate: this.customTime.date, at };
 	}
 }

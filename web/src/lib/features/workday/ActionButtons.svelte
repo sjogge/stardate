@@ -6,8 +6,16 @@
 	let {
 		choice,
 		pending,
+		disabled,
 		onrun
-	}: { choice: ActionChoice; pending: boolean; onrun: (action: WorkdayAction) => void } = $props();
+	}: {
+		choice: ActionChoice;
+		/** A request is in flight */
+		pending: boolean;
+		/** Nothing can be sent right now, e.g. while the custom time is incomplete */
+		disabled: boolean;
+		onrun: (action: WorkdayAction) => void;
+	} = $props();
 
 	function iconFor(action: WorkdayAction): Component {
 		switch (action.type) {
@@ -28,7 +36,7 @@
 	<button
 		type="button"
 		class={classes}
-		disabled={pending}
+		disabled={pending || disabled}
 		aria-busy={pending}
 		onclick={() => onrun(action)}
 	>

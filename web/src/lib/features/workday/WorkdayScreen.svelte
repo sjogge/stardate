@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ActionButtons from './ActionButtons.svelte';
+	import CustomTimeFields from './CustomTimeFields.svelte';
 	import StatusSummary from './StatusSummary.svelte';
 	import { chooseActions } from './actions';
 	import { Workday } from './workday.svelte';
@@ -57,6 +58,14 @@
 		{/if}
 
 		<StatusSummary status={workday.selected} />
-		<ActionButtons {choice} pending={workday.pending} onrun={(action) => workday.run(action)} />
+		<ActionButtons
+			{choice}
+			pending={workday.pending}
+			disabled={!workday.timeIsValid}
+			onrun={(action) => workday.run(action)}
+		/>
+		{#if choice.primary}
+			<CustomTimeFields {workday} />
+		{/if}
 	{/if}
 </div>

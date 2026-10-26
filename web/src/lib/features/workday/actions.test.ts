@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Day, JobStatus } from '$lib/api/types';
-import { actionLabel, chooseActions } from './actions';
+import { actionLabel, chooseActions, runAction } from './actions';
 
 function day(overrides: Partial<Day> = {}): Day {
 	return {
@@ -106,5 +106,40 @@ describe('chooseActions', () => {
 		const choice = chooseActions(status({ availableActions: [], today: day() }));
 
 		expect(labels(choice)).toEqual({ primary: undefined, secondary: [] });
+	});
+});
+
+describe('runAction', () => {
+	const fetchMock = vi.fn<typeof fetch>();
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.resetAllMocks();
+	});
+
+	async function sentBody(...args: Parameters<typeof runAction>): Promise<unknown> {
+		vi.stubGlobal('fetch', fetchMock);
+		fetchMock.mockResolvedValue(new Response(JSON.stringify(day()), { status: 200 }));
+		await runAction(...args);
+		return JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+	}
+
+	it('clocks in on the local date and lets the server pick the time', async () => {
+		const body = await sentBody(1, { type: 'clockIn' }, { workDate: '2026-10-26' });
+
+		expect(fetchMock.mock.calls[0][0]).toBe('/api/jobs/1/clock-in');
+		expect(body).toEqual({ workDate: '2026-10-26' });
+	});
+
+	it('sends a back-dated time with the action', async () => {
+		const at = '2026-10-26T06:30:00.000Z';
+		const body = await sentBody(
+			1,
+			{ type: 'startPause', pause: 'lunch' },
+			{ workDate: '2026-10-26', at }
+		);
+
+		expect(fetchMock.mock.calls[0][0]).toBe('/api/jobs/1/pauses/start');
+		expect(body).toEqual({ kind: 'lunch', at });
 	});
 });

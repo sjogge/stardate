@@ -1,6 +1,12 @@
 <script lang="ts">
 	import type { JobStatus } from '$lib/api/types';
-	import { formatBalance, formatDuration, formatTime } from '$lib/format';
+	import {
+		formatBalance,
+		formatDuration,
+		formatShortDate,
+		formatTime,
+		todayIsoDate
+	} from '$lib/format';
 	import { PAUSE_NAMES } from './actions';
 
 	let { status }: { status: JobStatus } = $props();
@@ -15,7 +21,11 @@
 		if (!today) return 'Not clocked in';
 		if (today.kind === 'flex') return 'Flex day';
 		if (!today.startedAt) return 'Not clocked in';
-		if (!today.endedAt) return `Working since ${formatTime(today.startedAt)}`;
+		if (!today.endedAt) {
+			// A day still open from an earlier date (e.g. a night shift) says which day it is
+			const day = today.workDate === todayIsoDate() ? '' : `${formatShortDate(today.workDate)} `;
+			return `Working since ${day}${formatTime(today.startedAt)}`;
+		}
 		return `Done: ${formatTime(today.startedAt)}–${formatTime(today.endedAt)}`;
 	});
 </script>

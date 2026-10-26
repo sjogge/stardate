@@ -15,6 +15,34 @@ export function todayIsoDate(): string {
 	return localIsoDate(new Date());
 }
 
+/** The local time of day as `HH:MM`, the format of `<input type="time">` */
+export function localTimeOfDay(date: Date): string {
+	const hours = String(date.getHours()).padStart(2, '0');
+	const minutes = String(date.getMinutes()).padStart(2, '0');
+	return `${hours}:${minutes}`;
+}
+
+export interface LocalDateTime {
+	/** `YYYY-MM-DD` */
+	date: string;
+	/** `HH:MM` */
+	time: string;
+}
+
+export function currentLocalDateTime(): LocalDateTime {
+	const now = new Date();
+	return { date: localIsoDate(now), time: localTimeOfDay(now) };
+}
+
+/**
+ * A local date and time as an RFC 3339 instant (in UTC), or undefined if either is incomplete.
+ * A date-time string without an offset is read in the device's time zone.
+ */
+export function toInstant({ date, time }: LocalDateTime): string | undefined {
+	const instant = new Date(`${date}T${time}`);
+	return Number.isNaN(instant.getTime()) ? undefined : instant.toISOString();
+}
+
 /** `7:05` for 425 minutes; `-0:30` for -30 */
 export function formatDuration(minutes: number): string {
 	const sign = minutes < 0 ? '-' : '';
@@ -34,4 +62,14 @@ export function formatTime(instant: string, locale?: string, timeZone?: string):
 	return new Intl.DateTimeFormat(locale, { timeStyle: 'short', timeZone }).format(
 		new Date(instant)
 	);
+}
+
+/** A `YYYY-MM-DD` date as a short local date with weekday, e.g. `Sun 25 Oct` */
+export function formatShortDate(isoDate: string, locale?: string): string {
+	// Without a time, `Date` would read the date as UTC midnight, which can be the day before
+	return new Intl.DateTimeFormat(locale, {
+		weekday: 'short',
+		day: 'numeric',
+		month: 'short'
+	}).format(new Date(`${isoDate}T00:00`));
 }
