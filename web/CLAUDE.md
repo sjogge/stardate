@@ -54,7 +54,7 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 - Navigation: bottom navigation on mobile, side rail or top links from the `md` breakpoint.
 - Theme selector: pick from a small curated list of Skeleton themes plus light/dark/system mode. Apply via `data-theme` on `<html>` and persist the choice in `localStorage`. Set it in an inline script in `app.html` before first paint to avoid a flash. Use system default if not available.
 - Use Skeleton design tokens and presets for color and spacing. No hardcoded colors.
-- The UI text is English.
+- The UI text is English, including weekday and month names (`textLocale` in `lib/format.ts`). Clock times follow the device's locale (24-hour or am/pm); native date and time inputs follow the browser's.
 
 ## Workflows
 

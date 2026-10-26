@@ -309,6 +309,18 @@ large button, the others are smaller.
   again. Worked time and leave-at are computed by the server at each load, so there is no client
   clock to drift.
 
+### English text, local clock times
+
+The UI text is English, including weekday and month names (`format.ts`, `textLocale`): an English
+device locale keeps its own variant (en-US: `Oct 26`), any other gets British English (`26 Oct`).
+Clock times follow the device's locale (`formatTime`), so they read `08:02` or `8:02 AM` as the
+person is used to. Native date and time inputs are the browser's own and always follow its locale
+(e.g. `2026-10-26` in Swedish).
+
+- **Why not a setting:** the device locale already says whether someone uses 24-hour or am/pm
+  time. A 12/24-hour setting would only be needed for people whose locale does not match their
+  preference.
+
 ### The schedule form
 
 A job's schedules are edited at `/jobs/{id}` in a dialog (full screen on phones).
@@ -413,6 +425,10 @@ Ideas that are not needed now but are worth knowing about.
   already exists answers 409 with the generic "resource already exists" (`AppError` maps every
   unique violation to it). `jobs.rs` could check for that case and answer "a job with this name
   already exists" instead, so the toast says what to change.
+
+- **12/24-hour and date format as a user setting.** Clock times follow the device locale today.
+  A setting in Settings could override it for people whose locale does not match their preference,
+  passed as `hourCycle` to `formatTime`. Native date and time inputs would still follow the browser.
 
 ## Roadmap
 
