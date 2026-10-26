@@ -308,6 +308,21 @@ large button, the others are smaller.
   again. Worked time and leave-at are computed by the server at each load, so there is no client
   clock to drift.
 
+### Back-dated actions send a local date and time
+
+"Use a different time" on the workday screen sends the next action with `at` (an RFC 3339
+instant) instead of letting the server use its current time; e.g. for a forgotten clock-in.
+
+- The date and time inputs are read in the device's time zone and sent in UTC
+  (`format.ts`, `toInstant`). The server stays timezone-agnostic.
+- A back-dated clock-in is registered on the chosen date (`workDate`), so a forgotten night shift
+  lands on the day it started. The server accepts a `workDate` at most one day from `at`.
+- The choice applies to one action and then resets, so the next action happens now again.
+- Times in the future are left to the server (400, shown as a toast); the inputs only block an
+  incomplete date or time.
+- A whole forgotten day is registered with `PUT /jobs/{id}/days/{date}` instead (History and
+  edits).
+
 ### Theme applied before first paint
 
 The theme and light/dark mode are set on `<html>` (`data-theme`, `data-mode`) by an inline script in
@@ -394,7 +409,7 @@ Ideas that are not needed now but are worth knowing about.
 - [ ] Svelte frontend, served by axum
     - [x] Scaffold, API client with error toasts, app shell with theme settings
     - [x] Workday screen: status per job, live actions
-    - [ ] Back-dated entries (date and time pickers)
+    - [x] Back-dated entries (date and time pickers)
     - [ ] History and edits
     - [ ] Jobs and schedules
     - [ ] Served by axum from the same container
