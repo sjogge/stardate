@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+// Loaded once while the file is collected, so the first test does not pay for compiling it
+// (on a cold cache that can wait for Vite's dependency bundling and exceed the test timeout)
+import './theme.svelte';
+
 // The module reads storage once when it loads, so each test imports a fresh copy
 async function loadTheme(stored: Record<string, string> = {}) {
 	const values = new Map(Object.entries(stored));
