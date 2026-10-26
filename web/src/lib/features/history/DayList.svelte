@@ -1,10 +1,23 @@
 <script lang="ts">
+	import { Pencil } from '@lucide/svelte';
 	import type { Day } from '$lib/api/types';
 	import { formatBalance, formatDuration, formatShortDate } from '$lib/format';
 	import { dayTimes } from './dayText';
 
-	let { days }: { days: Day[] } = $props();
+	let { days, onedit }: { days: Day[]; onedit: (day: Day) => void } = $props();
 </script>
+
+{#snippet editButton(day: Day)}
+	<button
+		type="button"
+		class="btn-icon preset-tonal"
+		aria-label="Edit {formatShortDate(day.workDate)}"
+		title="Edit"
+		onclick={() => onedit(day)}
+	>
+		<Pencil class="size-4" aria-hidden="true" />
+	</button>
+{/snippet}
 
 <!-- A table from md up; a list of cards on phones, where five columns would not fit.
      The wrapper hides the table: Skeleton's `table` class sets its own display. -->
@@ -17,6 +30,7 @@
 				<th scope="col">Worked</th>
 				<th scope="col">Balance</th>
 				<th scope="col">Note</th>
+				<th scope="col"><span class="sr-only">Edit</span></th>
 			</tr>
 		</thead>
 		<tbody>
@@ -27,6 +41,7 @@
 					<td class="tabular-nums">{formatDuration(day.totals.workedMinutes)}</td>
 					<td class="tabular-nums">{formatBalance(day.totals.balanceMinutes)}</td>
 					<td class="max-w-48 truncate">{day.note ?? ''}</td>
+					<td>{@render editButton(day)}</td>
 				</tr>
 			{/each}
 		</tbody>
@@ -36,9 +51,10 @@
 <ul class="space-y-2 md:hidden">
 	{#each days as day (day.id)}
 		<li class="card preset-filled-surface-100-900 p-3">
-			<div class="flex items-baseline justify-between gap-2">
+			<div class="flex items-center justify-between gap-2">
 				<span class="font-bold">{formatShortDate(day.workDate)}</span>
-				<span class="tabular-nums">{formatBalance(day.totals.balanceMinutes)}</span>
+				<span class="ml-auto tabular-nums">{formatBalance(day.totals.balanceMinutes)}</span>
+				{@render editButton(day)}
 			</div>
 			<div class="flex justify-between gap-2 text-sm opacity-75">
 				<span class="tabular-nums">{dayTimes(day)}</span>

@@ -1,10 +1,12 @@
 <script lang="ts">
-	import { ChevronLeft, ChevronRight } from '@lucide/svelte';
+	import { ChevronLeft, ChevronRight, Plus } from '@lucide/svelte';
 	import { formatBalance, formatDuration, formatMonth } from '$lib/format';
+	import DayDialog from './DayDialog.svelte';
 	import DayList from './DayList.svelte';
 	import { History } from './history.svelte';
 
 	const history = new History();
+	let dialog: DayDialog;
 	const monthName = $derived(formatMonth(history.month.year, history.month.month));
 
 	$effect(() => {
@@ -98,11 +100,23 @@
 				</section>
 			{/if}
 
+			<button
+				type="button"
+				class="btn self-start preset-filled-primary-500"
+				disabled={history.pending}
+				onclick={() => dialog.open(undefined, history.newDayDate)}
+			>
+				<Plus class="size-4" aria-hidden="true" />
+				<span>Add day</span>
+			</button>
+
 			{#if history.days.length === 0}
 				<p class="card preset-tonal p-4">No days registered in {monthName}.</p>
 			{:else}
-				<DayList days={history.newestFirst} />
+				<DayList days={history.newestFirst} onedit={(day) => dialog.open(day)} />
 			{/if}
 		{/if}
 	{/if}
 </div>
+
+<DayDialog bind:this={dialog} {history} />

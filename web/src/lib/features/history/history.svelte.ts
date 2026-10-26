@@ -1,6 +1,8 @@
 import { api } from '$lib/api/client';
 import type { Day, Job, RangeTotals, Summary } from '$lib/api/types';
 import { todayIsoDate } from '$lib/format';
+import { showSuccess } from '$lib/toast';
+import type { DayRequest } from './dayForm';
 import { isSameMonth, monthOf, monthRange, shiftMonth, type Month } from './month';
 
 /** State of the history screen: one job's days and totals for one month. */
@@ -14,6 +16,8 @@ export class History {
 	/** A load is in flight */
 	loading = $state(true);
 	failed = $state(false);
+	/** A change is being sent; its buttons are disabled */
+	pending = $state(false);
 
 	#controller: AbortController | undefined;
 
@@ -38,6 +42,11 @@ export class History {
 		}
 		this.jobId = (this.jobs.find((job) => job.archivedAt === null) ?? this.jobs[0])?.id;
 		await this.load();
+	}
+
+	/** Where "Add day" starts: today in the current month, else the shown month's last day */
+	get newDayDate(): string {
+		return this.isCurrentMonth ? todayIsoDate() : monthRange(this.month).to;
 	}
 
 	selectJob(jobId: number): Promise<void> {
@@ -77,6 +86,42 @@ export class History {
 			if (!controller.signal.aborted) this.failed = true;
 		} finally {
 			if (!controller.signal.aborted) this.loading = false;
+		}
+	}
+
+	/** Creates the day on `workDate`, or replaces `existing` if given */
+	save(workDate: string, request: DayRequest, existing?: Day): Promise<boolean> {
+		const path = `/jobs/${this.jobId}/days/${workDate}`;
+		return this.#change(
+			() =>
+				existing
+					? api.put(path, { body: request, ifMatch: existing.version })
+					: api.put(path, { body: request, createOnly: true }),
+			existing ? 'Day saved' : 'Day added'
+		);
+	}
+
+	remove(day: Day): Promise<boolean> {
+		return this.#change(
+			() => api.delete(`/jobs/${this.jobId}/days/${day.workDate}`, { ifMatch: day.version }),
+			'Day deleted'
+		);
+	}
+
+	/** Sends a change and reloads the month; resolves to whether the change went through */
+	async #change(send: () => Promise<unknown>, successMessage: string): Promise<boolean> {
+		if (this.pending || this.jobId === undefined) return false;
+		this.pending = true;
+		try {
+			await send();
+			showSuccess(successMessage);
+			return true;
+		} catch {
+			// Already toasted; e.g. a day already registered on that date (412) or invalid times (400)
+			return false;
+		} finally {
+			await this.load();
+			this.pending = false;
 		}
 	}
 }
