@@ -71,11 +71,12 @@ stardate/
 │       │   ├── api/client.ts  # the only fetch: ApiError, If-Match, one global error handler
 │       │   ├── api/types.ts   # response types, matching the Rust DTOs
 │       │   ├── components/    # reusable UI: AppNavigation (bottom bar / side rail), ConfirmDialog
-│       │   ├── features/      # per feature: workday/ (Today), jobs/, settings/
+│       │   ├── features/      # per feature: workday/ (Today), jobs/, schedules/, settings/
 │       │   ├── format.ts      # display formatting: durations, balances, local times and dates
 │       │   ├── theme.svelte.ts  # theme and light/dark/system choice, stored in localStorage
 │       │   └── toast.ts       # the toaster; identical error toasts are shown once
-│       └── routes/          # thin pages (/, /jobs, /settings); +layout.ts turns off SSR and prerendering
+│       ├── params/          # route matchers: integer ids, e.g. /jobs/[jobId=integer]
+│       └── routes/          # thin pages (/, /jobs, /jobs/{id}, /settings); +layout.ts turns off SSR
 ├── docs/
 │   └── time-tracking.md     # domain and API specification
 ├── compose.yaml
@@ -308,6 +309,21 @@ large button, the others are smaller.
   again. Worked time and leave-at are computed by the server at each load, so there is no client
   clock to drift.
 
+### The schedule form
+
+A job's schedules are edited at `/jobs/{id}` in a dialog (full screen on phones).
+
+- **A new version starts as a copy of the latest one,** since a change from a certain date usually
+  changes little. The "applies from" date and its effect are shown first: days already registered
+  keep their snapshot, so a schedule change never alters history.
+- **Paid lunch and breaks have no default** for a job's first schedule, matching the backend
+  (`ScheduleRequest` has no defaults): the form asks until both are chosen.
+- **Durations are typed as `8`, `8:00` or `0:45`** (`format.ts`, `parseDuration`) instead of in
+  minutes or with `<input type="time">`, which would show a clock (AM/PM in some locales) for what
+  is a duration. A weekday left empty means no work is expected that day.
+- **The form validates itself** (`novalidate`, `scheduleForm.ts`) and shows the first problem in one
+  alert, naming the weekday and field; the backend still validates every request.
+
 ### Back-dated actions send a local date and time
 
 "Use a different time" on the workday screen sends the next action with `at` (an RFC 3339
@@ -417,7 +433,7 @@ Ideas that are not needed now but are worth knowing about.
     - [x] Back-dated entries (date and time pickers)
     - [ ] History and edits
     - [x] Jobs: create, rename, archive, delete
-    - [ ] Schedules per job
+    - [x] Schedules per job
     - [ ] Served by axum from the same container
 - [ ] Authentication
 - [ ] Backups (`VACUUM INTO` + off-device copy) and a `deploy.sh`
