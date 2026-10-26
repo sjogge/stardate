@@ -1,7 +1,17 @@
 import { MediaQuery } from 'svelte/reactivity';
 
-// Keep in sync with the pre-paint script in app.html and the theme imports in routes/layout.css
-export const THEMES = ['cerberus', 'catppuccin', 'pine', 'rose'] as const;
+// Keep in sync with the pre-paint script in app.html and the theme imports in routes/layout.css;
+// theme.test.ts fails when they differ
+export const THEMES = [
+	'catppuccin',
+	'dracula',
+	'mint',
+	'nouveau',
+	'vox',
+	'wintry',
+	'crimson',
+	'legacy'
+] as const;
 export const MODES = ['light', 'dark', 'system'] as const;
 
 export type ThemeName = (typeof THEMES)[number];
@@ -9,7 +19,7 @@ export type Mode = (typeof MODES)[number];
 
 const THEME_KEY = 'stardate-theme';
 const MODE_KEY = 'stardate-mode';
-const DEFAULT_THEME: ThemeName = 'cerberus';
+export const DEFAULT_THEME: ThemeName = 'catppuccin';
 const DEFAULT_MODE: Mode = 'system';
 
 const prefersDark = new MediaQuery('(prefers-color-scheme: dark)');
