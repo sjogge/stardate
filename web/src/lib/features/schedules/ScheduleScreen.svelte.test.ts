@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
 import { render } from 'vitest-browser-svelte';
+import { formatWeekday } from '$lib/format';
 import ScheduleScreen from './ScheduleScreen.svelte';
 
 const fetchMock = vi.fn<typeof fetch>();
+// Weekday labels come from formatWeekday; building them the same way keeps the test in step with it
+const monday = formatWeekday(1);
 
 const job = {
 	id: 4,
@@ -48,8 +51,8 @@ describe('ScheduleScreen', () => {
 			.getByRole('group', { name: 'Breaks' })
 			.getByLabelText('Paid', { exact: true })
 			.click();
-		await form.getByRole('textbox', { name: /^Mon\S* work$/ }).fill('8');
-		await form.getByRole('textbox', { name: /^Mon\S* lunch$/ }).fill('1:00');
+		await form.getByRole('textbox', { name: `${monday} work` }).fill('8');
+		await form.getByRole('textbox', { name: `${monday} lunch` }).fill('1:00');
 		await form.getByRole('button', { name: 'Copy Monday to Tuesday–Friday' }).click();
 		await form.getByRole('button', { name: 'Save' }).click();
 
