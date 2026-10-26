@@ -27,6 +27,8 @@ export interface RequestOptions {
 	body?: unknown;
 	/** The resource version for `PUT` and `DELETE` on versioned resources */
 	ifMatch?: number;
+	/** `PUT` that may only create (`If-None-Match: *`): 412 if the resource already exists */
+	createOnly?: boolean;
 	signal?: AbortSignal;
 }
 
@@ -34,6 +36,7 @@ async function request<T>(method: string, path: string, options: RequestOptions 
 	const headers = new Headers({ Accept: 'application/json' });
 	if (options.body !== undefined) headers.set('Content-Type', 'application/json');
 	if (options.ifMatch !== undefined) headers.set('If-Match', `"${options.ifMatch}"`);
+	if (options.createOnly) headers.set('If-None-Match', '*');
 
 	let response: Response;
 	try {

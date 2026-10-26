@@ -44,6 +44,16 @@ describe('api client', () => {
 		expect(headers.get('If-Match')).toBe('"3"');
 	});
 
+	it('sends If-None-Match: * for a create-only PUT', async () => {
+		fetchMock.mockResolvedValue(jsonResponse({ id: 1 }, 201));
+
+		await api.put('/jobs/1/days/2026-10-26', { body: { kind: 'flex' }, createOnly: true });
+
+		const headers = new Headers(fetchMock.mock.calls[0][1]?.headers);
+		expect(headers.get('If-None-Match')).toBe('*');
+		expect(headers.has('If-Match')).toBe(false);
+	});
+
 	it('returns undefined for 204 No Content', async () => {
 		fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
 
