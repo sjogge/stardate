@@ -1,10 +1,22 @@
 // Display formatting only: the values themselves come from the API.
+//
+// The UI text is English, so weekday and month names are English too. Clock times and the
+// native date inputs follow the device's locale (24-hour or am/pm, date order).
 
 const MINUTES_PER_HOUR = 60;
 
 const MAX_MINUTES_PER_DAY = 24 * MINUTES_PER_HOUR;
 /** `8`, `8:00`, `7:30` or `0:45` */
 const DURATION_PATTERN = /^(\d{1,2})(?::([0-5]\d))?$/;
+
+/**
+ * The locale for dates written with words: the device's own English variant (en-US: `Oct 26`),
+ * otherwise British English (`26 Oct`), whose day-month order suits most other locales.
+ */
+export function textLocale(): string {
+	const deviceLocale = new Intl.DateTimeFormat().resolvedOptions().locale;
+	return deviceLocale.startsWith('en') ? deviceLocale : 'en-GB';
+}
 
 /** The local calendar date as `YYYY-MM-DD`, which the API expects for "today" */
 export function localIsoDate(date: Date): string {
@@ -61,15 +73,15 @@ export function formatBalance(minutes: number): string {
 	return minutes > 0 ? `+${formatDuration(minutes)}` : formatDuration(minutes);
 }
 
-/** An RFC 3339 instant as a local clock time, e.g. `08:02` */
+/** An RFC 3339 instant as a clock time in the device's locale, e.g. `08:02` or `8:02 AM` */
 export function formatTime(instant: string, locale?: string, timeZone?: string): string {
 	return new Intl.DateTimeFormat(locale, { timeStyle: 'short', timeZone }).format(
 		new Date(instant)
 	);
 }
 
-/** A `YYYY-MM-DD` date as a short local date with weekday, e.g. `Sun 25 Oct` */
-export function formatShortDate(isoDate: string, locale?: string): string {
+/** A `YYYY-MM-DD` date as a short English date with weekday, e.g. `Sun 25 Oct` */
+export function formatShortDate(isoDate: string, locale = textLocale()): string {
 	// Without a time, `Date` would read the date as UTC midnight, which can be the day before
 	return new Intl.DateTimeFormat(locale, {
 		weekday: 'short',
@@ -78,15 +90,15 @@ export function formatShortDate(isoDate: string, locale?: string): string {
 	}).format(new Date(`${isoDate}T00:00`));
 }
 
-/** A `YYYY-MM-DD` date as a local date with year, e.g. `26 Oct 2026` */
-export function formatDate(isoDate: string, locale?: string): string {
+/** A `YYYY-MM-DD` date as an English date with year, e.g. `26 Oct 2026` */
+export function formatDate(isoDate: string, locale = textLocale()): string {
 	return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(
 		new Date(`${isoDate}T00:00`)
 	);
 }
 
-/** An ISO weekday (1 = Monday, 7 = Sunday) as a short local name, e.g. `Mon` */
-export function formatWeekday(isoWeekday: number, locale?: string): string {
+/** An ISO weekday (1 = Monday, 7 = Sunday) as a short English name, e.g. `Mon` */
+export function formatWeekday(isoWeekday: number, locale = textLocale()): string {
 	// January 2024 started on a Monday, so day N of it has ISO weekday N
 	return new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(
 		new Date(2024, 0, isoWeekday)

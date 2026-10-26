@@ -9,6 +9,7 @@ import {
 	formatWeekday,
 	localTimeOfDay,
 	parseDuration,
+	textLocale,
 	toInstant
 } from './format';
 
@@ -74,5 +75,9 @@ describe('format', () => {
 		expect(parseDuration('8:60')).toBeUndefined();
 		expect(parseDuration('24:01')).toBeUndefined();
 		expect(parseDuration('-1')).toBeUndefined();
+	});
+
+	it('writes dates in English, whatever the device locale', () => {
+		expect(textLocale()).toMatch(/^en/);
 	});
 });
