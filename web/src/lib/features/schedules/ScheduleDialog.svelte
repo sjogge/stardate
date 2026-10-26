@@ -13,7 +13,8 @@
 	let { schedules }: { schedules: Schedules } = $props();
 
 	const id = $props.id();
-	let dialog: HTMLDialogElement;
+	// Undefined once the component is gone, e.g. after leaving the page while a save is in flight
+	let dialog: HTMLDialogElement | undefined;
 	let editing = $state<Schedule>();
 	let draft = $state<ScheduleDraft>(draftFrom(undefined, ''));
 	let error = $state<string>();
@@ -25,7 +26,7 @@
 			? draftFrom(schedule, schedule.validFrom)
 			: draftFrom(schedules.latest, todayIsoDate());
 		error = undefined;
-		dialog.showModal();
+		dialog?.showModal();
 	}
 
 	async function submit(event: SubmitEvent): Promise<void> {
@@ -36,7 +37,7 @@
 			return;
 		}
 		error = undefined;
-		if (await schedules.save(result.request, editing)) dialog.close();
+		if (await schedules.save(result.request, editing)) dialog?.close();
 	}
 </script>
 
@@ -143,7 +144,7 @@
 		{/if}
 
 		<div class="flex justify-end gap-2">
-			<button type="button" class="btn preset-tonal" onclick={() => dialog.close()}>Cancel</button>
+			<button type="button" class="btn preset-tonal" onclick={() => dialog?.close()}>Cancel</button>
 			<button type="submit" class="btn preset-filled-primary-500" disabled={schedules.pending}>
 				Save
 			</button>

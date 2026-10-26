@@ -70,6 +70,8 @@ describe('ScheduleScreen', () => {
 			lunchMinutes: 60,
 			breakMinutes: 0
 		});
+		// Saving closes the dialog once the list has reloaded; waiting for it ends the test cleanly
+		await expect.element(form).not.toBeInTheDocument();
 	});
 
 	it('explains what is missing instead of sending an incomplete schedule', async () => {
