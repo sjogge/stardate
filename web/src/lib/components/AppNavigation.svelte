@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { Clock, Settings } from '@lucide/svelte';
+	import { Briefcase, Clock, Settings } from '@lucide/svelte';
 	import { Navigation } from '@skeletonlabs/skeleton-svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 
@@ -10,12 +10,13 @@
 
 	const links = [
 		{ label: 'Today', href: resolve('/'), icon: Clock },
+		{ label: 'Jobs', href: resolve('/jobs'), icon: Briefcase },
 		{ label: 'Settings', href: resolve('/settings'), icon: Settings }
 	];
 </script>
 
 <Navigation layout={wideScreen.current ? 'rail' : 'bar'}>
-	<Navigation.Menu class={wideScreen.current ? '' : 'grid grid-cols-2 gap-2'}>
+	<Navigation.Menu class={wideScreen.current ? '' : 'grid grid-cols-3 gap-2'}>
 		{#each links as link (link.href)}
 			{@const Icon = link.icon}
 			<Navigation.TriggerAnchor

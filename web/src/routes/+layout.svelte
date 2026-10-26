@@ -19,9 +19,10 @@
 	<main class="overflow-y-auto">
 		{@render children()}
 	</main>
-	<div class="md:order-first">
+	<!-- Skeleton's Navigation renders a <div>; the <nav> makes it a landmark for screen readers -->
+	<nav aria-label="Main" class="md:order-first">
 		<AppNavigation />
-	</div>
+	</nav>
 </div>
 
 <Toast.Group {toaster}>

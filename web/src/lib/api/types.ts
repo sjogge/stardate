@@ -1,6 +1,16 @@
 // Response shapes of the backend (backend/src/days.rs, status.rs, live.rs).
 // Instants are RFC 3339 strings in UTC; dates are `YYYY-MM-DD`; durations are whole minutes.
 
+export interface Job {
+	id: number;
+	name: string;
+	/** Set once archived: the job is kept for its history but takes no new days */
+	archivedAt: string | null;
+	version: number;
+	createdAt: string;
+	updatedAt: string;
+}
+
 export type DayKind = 'work' | 'flex';
 export type PauseKind = 'lunch' | 'break' | 'other';
 export type LiveAction = 'clockIn' | 'clockOut' | 'startPause' | 'endPause';

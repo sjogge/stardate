@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import ActionButtons from './ActionButtons.svelte';
 	import CustomTimeFields from './CustomTimeFields.svelte';
 	import StatusSummary from './StatusSummary.svelte';
@@ -40,7 +41,9 @@
 			</button>
 		</div>
 	{:else if !workday.selected || !choice}
-		<p class="card preset-tonal p-4">No active jobs yet.</p>
+		<p class="card preset-tonal p-4">
+			No active jobs yet. <a class="anchor" href={resolve('/jobs')}>Add a job</a> to start tracking time.
+		</p>
 	{:else}
 		{#if workday.statuses.length > 1}
 			<label class="label">
