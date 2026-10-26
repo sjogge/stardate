@@ -71,12 +71,12 @@ stardate/
 │       │   ├── api/client.ts  # the only fetch: ApiError, If-Match, one global error handler
 │       │   ├── api/types.ts   # response types, matching the Rust DTOs
 │       │   ├── components/    # reusable UI: AppNavigation (bottom bar / side rail), ConfirmDialog
-│       │   ├── features/      # per feature: workday/ (Today), jobs/, schedules/, settings/
+│       │   ├── features/      # per feature: workday/ (Today), history/, jobs/, schedules/, settings/
 │       │   ├── format.ts      # display formatting: durations, balances, local times and dates
 │       │   ├── theme.svelte.ts  # theme and light/dark/system choice, stored in localStorage
 │       │   └── toast.ts       # the toaster; identical error toasts are shown once
 │       ├── params/          # route matchers: integer ids, e.g. /jobs/[jobId=integer]
-│       └── routes/          # thin pages (/, /jobs, /jobs/{id}, /settings); +layout.ts turns off SSR
+│       └── routes/          # thin pages (/, /history, /jobs, /jobs/{id}, /settings); +layout.ts turns off SSR
 ├── docs/
 │   └── time-tracking.md     # domain and API specification
 ├── compose.yaml
@@ -430,6 +430,11 @@ Ideas that are not needed now but are worth knowing about.
   A setting in Settings could override it for people whose locale does not match their preference,
   passed as `hourCycle` to `formatTime`. Native date and time inputs would still follow the browser.
 
+- **Loading skeletons shaped like the content.** Screens show a plain pulsing block while loading.
+  Placeholders in the shape of what is coming (a status card with its four values, a few list
+  rows, a table) would make loading feel faster and keep the layout from jumping when the data
+  arrives. Skeleton's `placeholder` class can be combined into such shapes per screen.
+
 ## Roadmap
 
 - [x] Data model: jobs, versioned schedules, work days, pauses, flex adjustments (UTC instants)
@@ -447,7 +452,8 @@ Ideas that are not needed now but are worth knowing about.
     - [x] Scaffold, API client with error toasts, app shell with theme settings
     - [x] Workday screen: status per job, live actions
     - [x] Back-dated entries (date and time pickers)
-    - [ ] History and edits
+    - [x] History: days and totals per month
+    - [ ] Edit days: create, edit, delete
     - [x] Jobs: create, rename, archive, delete
     - [x] Schedules per job
     - [ ] Served by axum from the same container
