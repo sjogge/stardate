@@ -92,6 +92,16 @@
 		</fieldset>
 
 		{#if draft.kind === 'work'}
+			<label class="flex items-start gap-2">
+				<input type="checkbox" class="mt-1 checkbox" bind:checked={draft.bonus} />
+				<span>
+					Bonus day: no work expected
+					<span class="block text-sm opacity-75">
+						E.g. working on a public holiday. All worked time counts as plus time.
+					</span>
+				</span>
+			</label>
+
 			<div class="grid grid-cols-2 gap-3">
 				<label class="label">
 					<span class="label-text">Start</span>

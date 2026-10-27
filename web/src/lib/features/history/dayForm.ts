@@ -28,7 +28,14 @@ export interface DayDraft {
 	end: string;
 	pauses: PauseDraft[];
 	note: string;
+	/** Nothing expected that day (e.g. work on a public holiday): all worked time counts as plus */
+	bonus: boolean;
+	/** Whether the day was registered with nothing expected; undefined for a new day */
+	registeredAsBonus: boolean | undefined;
 }
+
+/** Expected values that make a day a bonus day; the paid flags stay as the schedule has them */
+const NOTHING_EXPECTED = { workMinutes: 0, lunchMinutes: 0, breakMinutes: 0 } as const;
 
 export interface DayRequest {
 	kind: DayKind;
@@ -36,6 +43,9 @@ export interface DayRequest {
 	endedAt?: string;
 	pauses: PauseRequest[];
 	note: string | null;
+	expected?: typeof NOTHING_EXPECTED;
+	/** Re-takes the expected values from the schedule, undoing a bonus day */
+	refreshExpected?: boolean;
 }
 
 export interface PauseRequest {
@@ -51,7 +61,16 @@ export function emptyPause(kind: PauseKind = 'lunch'): PauseDraft {
 
 /** A form filled from `day`, or an empty work day on `workDate` */
 export function draftFromDay(day: Day | undefined, workDate: string): DayDraft {
-	if (!day) return { workDate, kind: 'work', start: '', end: '', pauses: [], note: '' };
+	if (!day) {
+		const empty = { start: '', end: '', pauses: [], note: '' };
+		return { workDate, kind: 'work', ...empty, bonus: false, registeredAsBonus: undefined };
+	}
+	// Also true for a weekday the schedule has no hours on (e.g. a Saturday): that is bonus time too
+	const bonus =
+		day.kind === 'work' &&
+		day.expected.workMinutes === 0 &&
+		day.expected.lunchMinutes === 0 &&
+		day.expected.breakMinutes === 0;
 	return {
 		workDate: day.workDate,
 		kind: day.kind,
@@ -63,7 +82,9 @@ export function draftFromDay(day: Day | undefined, workDate: string): DayDraft {
 			end: localTime(pause.endedAt),
 			duration: pause.minutes === null ? '' : formatDuration(pause.minutes)
 		})),
-		note: day.note ?? ''
+		note: day.note ?? '',
+		bonus,
+		registeredAsBonus: bonus
 	};
 }
 
@@ -71,7 +92,16 @@ export function draftFromDay(day: Day | undefined, workDate: string): DayDraft {
 export function toDayRequest(draft: DayDraft): { request: DayRequest } | { error: string } {
 	if (draft.workDate === '') return { error: 'Choose the date.' };
 	const note = draft.note.trim() === '' ? null : draft.note.trim();
-	if (draft.kind === 'flex') return { request: { kind: 'flex', pauses: [], note } };
+	const bonus = draft.kind === 'work' && draft.bonus;
+	// A day that stops being a bonus day (or becomes a flex day) takes the schedule's times again
+	const expectation = bonus
+		? { expected: NOTHING_EXPECTED }
+		: draft.registeredAsBonus
+			? { refreshExpected: true }
+			: {};
+	if (draft.kind === 'flex') {
+		return { request: { kind: 'flex', pauses: [], note, ...expectation } };
+	}
 
 	const startedAt = instantOnDay(draft.workDate, draft.start);
 	if (!startedAt) return { error: 'Enter the start time.' };
@@ -94,7 +124,7 @@ export function toDayRequest(draft: DayDraft): { request: DayRequest } | { error
 		pauses.push({ kind: pause.kind, startedAt: pauseStart, endedAt: pauseEnd });
 	}
 
-	return { request: { kind: 'work', startedAt, endedAt, pauses, note } };
+	return { request: { kind: 'work', startedAt, endedAt, pauses, note, ...expectation } };
 }
 
 function instantOnDay(workDate: string, time: string): string | undefined {

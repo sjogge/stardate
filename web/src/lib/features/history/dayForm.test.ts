@@ -113,4 +113,37 @@ describe('dayForm', () => {
 			error: 'Pause 1 (lunch): use hours and minutes, e.g. 0:45.'
 		});
 	});
+
+	it('sends a bonus day with nothing expected', () => {
+		const draft = draftFromDay(undefined, '2026-12-25');
+		draft.start = '09:00';
+		draft.bonus = true;
+
+		expect(toDayRequest(draft)).toMatchObject({
+			request: { expected: { workMinutes: 0, lunchMinutes: 0, breakMinutes: 0 } }
+		});
+	});
+
+	it("takes the schedule's times again when a bonus day stops being one", () => {
+		const bonusDay = {
+			...day,
+			expected: { ...day.expected, workMinutes: 0, lunchMinutes: 0, breakMinutes: 0 }
+		};
+		const draft = draftFromDay(bonusDay, 'ignored');
+		expect(draft.bonus).toBe(true);
+
+		draft.bonus = false;
+		expect(toDayRequest(draft)).toMatchObject({ request: { refreshExpected: true } });
+
+		draft.bonus = true;
+		draft.kind = 'flex';
+		expect(toDayRequest(draft)).toMatchObject({ request: { kind: 'flex', refreshExpected: true } });
+	});
+
+	it('leaves the expected times alone otherwise', () => {
+		const result = toDayRequest(draftFromDay(day, 'ignored'));
+
+		expect(result).not.toHaveProperty('request.expected');
+		expect(result).not.toHaveProperty('request.refreshExpected');
+	});
 });
