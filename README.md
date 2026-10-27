@@ -499,12 +499,6 @@ Ideas that are not needed now but are worth knowing about.
   It changes worked time and the flex balance, so it belongs in the backend (per user, applied in
   `calc.rs`), not only in the UI.
 
-- **Reject impossible schedule days.** Work, lunch and break minutes are each checked to be at most
-  24 hours, so a typo such as a 17:00 lunch next to 8:00 of work is accepted, and every day without
-  a logged lunch then counts 17 hours of unpaid lunch. Checking that a weekday's work, lunch and
-  breaks fit in 24 hours (in `schedules.rs`, and in the schedule form for a clear message) would
-  catch it.
-
 ## Roadmap
 
 - [x] Data model: jobs, versioned schedules, work days, pauses, flex adjustments (UTC instants)
