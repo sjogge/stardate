@@ -22,9 +22,11 @@
 	/** Edits `schedule`, or starts a new version as a copy of the latest one */
 	export function open(schedule?: Schedule): void {
 		editing = schedule;
+		// A first schedule gets no date: days before it cannot be registered, so it is a
+		// deliberate choice (usually the first day you track), not silently today
 		draft = schedule
 			? draftFrom(schedule, schedule.validFrom)
-			: draftFrom(schedules.latest, todayIsoDate());
+			: draftFrom(schedules.latest, schedules.latest ? todayIsoDate() : '');
 		error = undefined;
 		dialog?.showModal();
 	}
@@ -78,6 +80,11 @@
 			<span class="label-text">Applies to days from</span>
 			<input type="date" class="input" required bind:value={draft.validFrom} />
 		</label>
+		{#if !editing && !schedules.latest}
+			<p class="text-sm">
+				For a first schedule, choose the first day you track: days before it cannot be registered.
+			</p>
+		{/if}
 		<p class="text-sm opacity-75">
 			It applies until the next schedule starts. Days already registered keep the times they were
 			registered with, so changing a schedule never changes your history.

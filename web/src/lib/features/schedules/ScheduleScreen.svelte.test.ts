@@ -80,9 +80,10 @@ describe('ScheduleScreen', () => {
 		await page.getByRole('button', { name: 'Add schedule' }).click();
 		await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
 
+		// A first schedule starts without a date, so that is asked for first
 		await expect
 			.element(page.getByRole('alert'))
-			.toHaveTextContent('Choose whether lunch is paid.');
+			.toHaveTextContent('Choose the date the schedule applies from.');
 		expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
 	});
 });
