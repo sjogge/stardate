@@ -61,6 +61,19 @@
 		{/if}
 
 		<StatusSummary status={workday.selected} />
+		{#if !workday.selected.today && workday.selected.availableActions.length === 0}
+			<!-- The backend offers no clock-in when no schedule covers today -->
+			<p class="card preset-tonal-warning p-4">
+				No schedule covers today, so you cannot clock in yet.
+				<a
+					class="anchor"
+					href={resolve('/jobs/[jobId=integer]', { jobId: String(workday.selected.jobId) })}
+				>
+					Add a schedule
+				</a>
+				that starts today or earlier.
+			</p>
+		{/if}
 		<ActionButtons
 			{choice}
 			pending={workday.pending}
