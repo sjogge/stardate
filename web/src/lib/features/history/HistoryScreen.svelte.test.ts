@@ -56,6 +56,16 @@ const totals = {
 	balanceMinutes: 15
 };
 
+const adjustment = {
+	id: 9,
+	adjustedOn: '2026-01-15',
+	minutes: 120,
+	note: 'Carried over',
+	version: 2,
+	createdAt: '',
+	updatedAt: ''
+};
+
 function json(body: unknown): Response {
 	return new Response(JSON.stringify(body), { status: 200 });
 }
@@ -68,7 +78,7 @@ beforeEach(() => {
 	vi.stubGlobal('fetch', fetchMock);
 	fetchMock.mockImplementation(async (url, init) => {
 		const path = String(url);
-		if (init?.method === 'PUT') return json({});
+		if (init?.method === 'PUT' || init?.method === 'POST') return json({});
 		if (init?.method === 'DELETE') return new Response(null, { status: 204 });
 		if (path === '/api/jobs') {
 			return json([
@@ -76,6 +86,10 @@ beforeEach(() => {
 			]);
 		}
 		if (path.includes('/summary')) return json({ from, to: from, totals });
+		if (path.endsWith('/flex')) {
+			return json({ balanceMinutes: 135, daysMinutes: 15, adjustmentsMinutes: 120 });
+		}
+		if (path.endsWith('/flex-adjustments')) return json([adjustment]);
 		// Only this month has days; earlier months are empty
 		return json(path.includes(`from=${from}`) ? [day(from, -30), day(secondDay, 45)] : []);
 	});
@@ -205,5 +219,41 @@ describe('editing days', () => {
 		const [url, init] = sent('DELETE');
 		expect(url).toBe(`/api/jobs/1/days/${secondDay}`);
 		expect(new Headers(init.headers).get('If-Match')).toBe('"1"');
+	});
+
+	it('takes time from the flex balance as a negative adjustment', async () => {
+		render(HistoryScreen);
+
+		await expect
+			.element(page.getByLabelText('Flex balance', { exact: true }))
+			.toHaveTextContent('+2:15');
+		await page.getByRole('button', { name: 'Adjust' }).click();
+		const form = page.getByRole('dialog');
+		await form.getByLabelText('Take time').click();
+		await form.getByLabelText('Hours').fill('2:30');
+		await form.getByRole('button', { name: 'Save' }).click();
+
+		await waitFor('POST');
+		const [url, init] = sent('POST');
+		expect(url).toBe('/api/jobs/1/flex-adjustments');
+		expect(JSON.parse(String(init.body))).toMatchObject({ minutes: -150, note: null });
+		await expect.element(form).not.toBeInTheDocument();
+	});
+
+	it('edits an adjustment with its version', async () => {
+		render(HistoryScreen);
+
+		await page.getByText('Adjustments (1)').click();
+		await page.getByRole('button', { name: /^Edit the adjustment of/ }).click();
+		const form = page.getByRole('dialog');
+		await expect.element(form.getByLabelText('Hours')).toHaveValue('2:00');
+		await form.getByLabelText('Hours').fill('3:00');
+		await form.getByRole('button', { name: 'Save' }).click();
+
+		await waitFor('PUT');
+		const [url, init] = sent('PUT');
+		expect(url).toBe('/api/jobs/1/flex-adjustments/9');
+		expect(new Headers(init.headers).get('If-Match')).toBe('"2"');
+		expect(JSON.parse(String(init.body)).minutes).toBe(180);
 	});
 });

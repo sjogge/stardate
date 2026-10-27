@@ -3,6 +3,8 @@ import { formatDuration, formatWeekday, parseDuration } from '$lib/format';
 
 export const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
 
+const MINUTES_PER_DAY = 24 * 60;
+
 /** What the form holds per weekday: durations as typed, e.g. `8:00` */
 export interface DayTimes {
 	work: string;
@@ -78,6 +80,12 @@ export function toRequest(draft: ScheduleDraft): { request: ScheduleRequest } | 
 				};
 			}
 			day[key] = minutes;
+		}
+		// The backend checks this too; here it can name the weekday
+		if (day.workMinutes + day.lunchMinutes + day.breakMinutes > MINUTES_PER_DAY) {
+			return {
+				error: `${formatWeekday(weekday)}: work, lunch and breaks add up to more than 24 hours.`
+			};
 		}
 		days.push(day);
 	}

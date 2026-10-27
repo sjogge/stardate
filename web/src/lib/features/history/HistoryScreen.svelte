@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { ChevronLeft, ChevronRight, Plus } from '@lucide/svelte';
 	import { formatBalance, formatDuration, formatMonth } from '$lib/format';
+	import AdjustmentDialog from './AdjustmentDialog.svelte';
 	import DayDialog from './DayDialog.svelte';
 	import DayList from './DayList.svelte';
+	import FlexCard from './FlexCard.svelte';
 	import { History } from './history.svelte';
 
 	const history = new History();
 	let dialog: DayDialog;
+	let adjustmentDialog: AdjustmentDialog;
 	const monthName = $derived(formatMonth(history.month.year, history.month.month));
 
 	$effect(() => {
@@ -44,6 +47,17 @@
 			<p class="card preset-tonal p-4">No jobs yet, so there is no history to show.</p>
 		{/if}
 	{:else}
+		{#if history.flex}
+			<!-- Kept while a month loads: the balance is all-time, not the month's -->
+			<FlexCard
+				flex={history.flex}
+				adjustments={history.newestAdjustmentsFirst}
+				pending={history.pending}
+				onadd={() => adjustmentDialog.open()}
+				onedit={(adjustment) => adjustmentDialog.open(adjustment)}
+			/>
+		{/if}
+
 		<div class="flex items-center justify-between gap-2">
 			<button
 				type="button"
@@ -120,3 +134,4 @@
 </div>
 
 <DayDialog bind:this={dialog} {history} />
+<AdjustmentDialog bind:this={adjustmentDialog} {history} />

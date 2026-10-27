@@ -345,6 +345,18 @@ Days are added and edited on the History screen in a dialog (full screen on phon
 - Overriding single expected values (e.g. a half day) is not in the form (see Possible
   improvements).
 
+### Flex balance on the History screen
+
+The History screen shows the job's flex balance (`GET /jobs/{id}/flex`) with its parts (days and
+adjustments) above the month, and lists the adjustments, newest first, in a collapsible section.
+
+- **One place for past time:** days, the month's totals and manual adjustments all live on History,
+  and are reloaded together after any change, because each change moves the others.
+- **The balance is all-time, not the month's.** It stays visible while another month loads; the
+  month's own totals (which include adjustments dated in it) sit below it.
+- **An adjustment is "add" or "take" plus an amount** (`40:00`, up to a year of full days) instead
+  of a signed number, so it reads like the reason for it ("2 hours paid out").
+
 ### English text, local clock times
 
 The UI text is English, including weekday and month names (`format.ts`, `textLocale`): an English
@@ -482,6 +494,11 @@ Ideas that are not needed now but are worth knowing about.
   or re-take it from the current schedule (`refreshExpected`), e.g. after fixing a schedule that was
   wrong when the day was registered. The form does not offer either yet.
 
+- **A setting for default pauses.** A day without a logged lunch or break counts the expected one
+  from the schedule. A user setting could choose instead that an unlogged pause counts as none.
+  It changes worked time and the flex balance, so it belongs in the backend (per user, applied in
+  `calc.rs`), not only in the UI.
+
 ## Roadmap
 
 - [x] Data model: jobs, versioned schedules, work days, pauses, flex adjustments (UTC instants)
@@ -503,7 +520,7 @@ Ideas that are not needed now but are worth knowing about.
     - [x] Edit days: create, edit, delete
     - [x] Jobs: create, rename, archive, delete
     - [x] Schedules per job
-    - [ ] Flex adjustments
+    - [x] Flex adjustments
     - [ ] Hours-only jobs: `jobs.kind` (`"scheduled"` or `"hours"`), set when the job is created.
       An hours job gets a schedule with no hours, created with it in one transaction, so every
       calculation stays the same; the UI shows worked hours instead of balance, flex and

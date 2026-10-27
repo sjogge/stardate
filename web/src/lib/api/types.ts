@@ -117,3 +117,22 @@ export interface Summary {
 	to: string;
 	totals: RangeTotals;
 }
+
+/** `GET /jobs/{id}/flex`: closed days plus every adjustment */
+export interface FlexBalance {
+	balanceMinutes: number;
+	daysMinutes: number;
+	adjustmentsMinutes: number;
+}
+
+/** A manual change to the flex balance, e.g. hours carried over from an old system */
+export interface FlexAdjustment {
+	id: number;
+	adjustedOn: string;
+	/** Positive adds to the balance, negative takes from it */
+	minutes: number;
+	note: string | null;
+	version: number;
+	createdAt: string;
+	updatedAt: string;
+}

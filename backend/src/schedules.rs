@@ -129,6 +129,14 @@ impl ScheduleRequest {
                     "minutes must be between 0 and {MAX_MINUTES_PER_DAY}"
                 )));
             }
+            // Each value alone can be valid while the day is not: a 17:00 lunch typed next to
+            // 8:00 of work would make every day without a logged lunch deeply negative
+            if minutes.iter().sum::<i64>() > MAX_MINUTES_PER_DAY {
+                return Err(AppError::Validation(format!(
+                    "weekday {}: work, lunch and breaks must fit in 24 hours",
+                    day.weekday
+                )));
+            }
         }
         Ok(())
     }

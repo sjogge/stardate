@@ -215,6 +215,7 @@ Forgotten days can be registered later.
 ### Validation
 
 - `ended_at > started_at`, and a day is at most 24 hours.
+- A schedule's weekday row has work, lunch and break minutes of at most 24 hours together.
 - Timed pauses lie within the day (`started_at` to `ended_at`, or now if open) and do not overlap.
 - Only one open work day per job and one running pause per day (also enforced by indexes).
 - No clock-in on an archived job (409).
