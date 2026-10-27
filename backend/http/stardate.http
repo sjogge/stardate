@@ -102,6 +102,23 @@ Content-Type: {{jsonType}}
 ###
 @dayJobId = {{dayJob.response.body.$.id}}
 
+### Give it a schedule: days can only be registered on dates a schedule covers
+POST {{baseUrl}}/jobs/{{dayJobId}}/schedules
+Content-Type: {{jsonType}}
+
+{
+  "validFrom": "2026-01-01",
+  "lunchPaid": false,
+  "breaksPaid": true,
+  "days": [
+    { "weekday": 1, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 2, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 3, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 4, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 5, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 }
+  ]
+}
+
 ### Create a day (create-only: 412 if it already exists)
 # @name createDay
 PUT {{baseUrl}}/jobs/{{dayJobId}}/days/2026-10-23
@@ -168,6 +185,18 @@ If-Match: {{overrideDay.response.headers.ETag}}
     { "kind": "lunch", "minutes": 45 }
   ],
   "refreshExpected": true
+}
+
+### A bonus day: work on a public holiday (Midsummer Eve, a Friday); nothing expected, all of it is plus
+PUT {{baseUrl}}/jobs/{{dayJobId}}/days/2026-06-19
+Content-Type: {{jsonType}}
+If-None-Match: *
+
+{
+  "kind": "work",
+  "startedAt": "2026-06-19T09:00:00+02:00",
+  "endedAt": "2026-06-19T12:00:00+02:00",
+  "expected": { "workMinutes": 0, "lunchMinutes": 0, "breakMinutes": 0 }
 }
 
 ### List days in a range (at most 366 days)
@@ -365,6 +394,17 @@ If-None-Match: *
 
 {
   "kind": "flex"
+}
+
+### 409: a day on a date no schedule covers (the schedule starts on 2026-01-01)
+PUT {{baseUrl}}/jobs/{{dayJobId}}/days/2025-12-31
+Content-Type: {{jsonType}}
+If-None-Match: *
+
+{
+  "kind": "work",
+  "startedAt": "2025-12-31T08:00:00+01:00",
+  "endedAt": "2025-12-31T12:00:00+01:00"
 }
 
 ### 428: day PUT without If-Match or If-None-Match

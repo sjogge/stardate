@@ -53,10 +53,15 @@ pub enum LiveAction {
 }
 
 /// `today` is the open day, or else the day registered on the client's date.
+/// `schedule_covers_date`: clock-in needs a schedule valid on that date.
 /// Expects an active job: archived jobs allow no action.
-pub fn available_actions(today: Option<&DayResponse>) -> Vec<LiveAction> {
+pub fn available_actions(
+    today: Option<&DayResponse>,
+    schedule_covers_date: bool,
+) -> Vec<LiveAction> {
     match today {
-        None => vec![LiveAction::ClockIn],
+        None if schedule_covers_date => vec![LiveAction::ClockIn],
+        None => Vec::new(),
         Some(day) if !day.is_open() => Vec::new(),
         // Clocking out also ends the running pause
         Some(day) if day.running_pause().is_some() => {
