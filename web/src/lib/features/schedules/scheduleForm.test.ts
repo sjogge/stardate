@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Schedule } from '$lib/api/types';
+import { formatWeekday } from '$lib/format';
 import { copyMondayToWeekdays, draftFrom, toRequest } from './scheduleForm';
 
 const schedule: Schedule = {
@@ -55,6 +56,15 @@ describe('scheduleForm', () => {
 			Array(4).fill({ work: '8:00', lunch: '1:00', breaks: '0:30' })
 		);
 		expect(draft.days[5]).toEqual({ work: '', lunch: '', breaks: '' });
+	});
+
+	it('rejects a weekday whose work, lunch and breaks exceed a day', () => {
+		const draft = draftFrom(schedule, '2026-11-01');
+		draft.days[0].lunch = '17:00';
+
+		expect(toRequest(draft)).toEqual({
+			error: `${formatWeekday(1)}: work, lunch and breaks add up to more than 24 hours.`
+		});
 	});
 
 	it('names the weekday and field of a duration it cannot read', () => {
