@@ -77,6 +77,11 @@ describe('format', () => {
 		expect(parseDuration('-1')).toBeUndefined();
 	});
 
+	it('reads longer durations up to a given maximum', () => {
+		expect(parseDuration('40:00', 100 * 60)).toBe(2400);
+		expect(parseDuration('40:00')).toBeUndefined();
+	});
+
 	it('writes dates in English, whatever the device locale', () => {
 		expect(textLocale()).toMatch(/^en/);
 	});

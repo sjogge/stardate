@@ -6,8 +6,8 @@
 const MINUTES_PER_HOUR = 60;
 
 const MAX_MINUTES_PER_DAY = 24 * MINUTES_PER_HOUR;
-/** `8`, `8:00`, `7:30` or `0:45` */
-const DURATION_PATTERN = /^(\d{1,2})(?::([0-5]\d))?$/;
+/** `8`, `8:00`, `7:30`, `0:45` or, for longer amounts, `40:00` */
+const DURATION_PATTERN = /^(\d{1,4})(?::([0-5]\d))?$/;
 
 /**
  * The locale for dates written with words: the device's own English variant (en-US: `Oct 26`),
@@ -114,13 +114,13 @@ export function formatWeekday(isoWeekday: number, locale = textLocale()): string
 
 /**
  * Reads a typed duration (`8`, `8:00`, `0:45`) as minutes; an empty field is 0.
- * Undefined if it is not a duration of at most 24 hours.
+ * Undefined if it is not a duration of at most `maxMinutes` (a day unless given).
  */
-export function parseDuration(text: string): number | undefined {
+export function parseDuration(text: string, maxMinutes = MAX_MINUTES_PER_DAY): number | undefined {
 	const trimmed = text.trim();
 	if (trimmed === '') return 0;
 	const match = DURATION_PATTERN.exec(trimmed);
 	if (!match) return undefined;
 	const minutes = Number(match[1]) * MINUTES_PER_HOUR + Number(match[2] ?? 0);
-	return minutes <= MAX_MINUTES_PER_DAY ? minutes : undefined;
+	return minutes <= maxMinutes ? minutes : undefined;
 }
