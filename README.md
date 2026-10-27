@@ -215,7 +215,7 @@ Errors are returned as JSON `{ "message": "..." }`:
 | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
 | 400    | Validation failed, a CHECK / NOT NULL constraint was violated, malformed JSON, an invalid path value, or a malformed `If-Match` |
 | 404    | Resource not found                                                                                                              |
-| 409    | Unique or foreign key constraint violated (e.g. duplicate job name or deleting a job that is not archived)                      |
+| 409    | Unique or foreign key constraint violated, or the state does not allow it (e.g. duplicate job name, deleting a job that is not archived, a day on a date no schedule covers) |
 | 412    | `If-Match` version is out of date: the resource was modified by another request                                                 |
 | 413    | Request body too large                                                                                                          |
 | 415    | `Content-Type: application/json` missing on a request with a JSON body                                                          |
@@ -309,6 +309,20 @@ large button, the others are smaller.
   again. Worked time and leave-at are computed by the server at each load, so there is no client
   clock to drift.
 
+### A schedule must cover every registered day
+
+Creating a day, clocking in or re-taking a day's snapshot on a date before the job's first schedule
+answers 409. `GET /status` then offers no `clockIn`, and the Today screen links to the job's
+schedules instead.
+
+- **Why:** a day with no schedule has nothing expected, so every minute silently counted as
+  overtime, e.g. +9:00 for a normal 9-hour day registered before the schedule's date.
+- A weekday without hours in a covering schedule (a Saturday) is still allowed: it has nothing
+  expected, so its work is plus time. A **bonus day** does the same for a weekday with hours, such
+  as a public holiday (see the day editor).
+- Someone without a set schedule (e.g. a contractor) adds one schedule with no hours on any day;
+  "Hours-only jobs" on the roadmap will make that a choice when creating the job.
+
 ### The day editor
 
 Days are added and edited on the History screen in a dialog (full screen on phones), sent as
@@ -324,7 +338,11 @@ Days are added and edited on the History screen in a dialog (full screen on phon
   resource changed.
 - **The date of a registered day is fixed**, as in the API: moving a day means deleting it and adding
   it again, because its schedule snapshot depends on the date.
-- The snapshot overrides (`expected`, `refreshExpected`) are not in the form yet (see Possible
+- **Bonus day** (a checkbox for work days) sends `expected` work, lunch and break as 0: work on a
+  day the schedule expects some but nothing is owed, e.g. a public holiday. Unticking it sends
+  `refreshExpected`, so the day takes the schedule's times again. A day registered with nothing
+  expected shows up ticked, which also covers a Saturday.
+- Overriding single expected values (e.g. a half day) is not in the form (see Possible
   improvements).
 
 ### English text, local clock times
@@ -346,6 +364,8 @@ A job's schedules are edited at `/jobs/{id}` in a dialog (full screen on phones)
 - **A new version starts as a copy of the latest one,** since a change from a certain date usually
   changes little. The "applies from" date and its effect are shown first: days already registered
   keep their snapshot, so a schedule change never alters history.
+- **A job's first schedule has no default date.** Days can only be registered on dates a schedule
+  covers, so the form asks for it and suggests the first day you track.
 - **Paid lunch and breaks have no default** for a job's first schedule, matching the backend
   (`ScheduleRequest` has no defaults): the form asks until both are chosen.
 - **Durations are typed as `8`, `8:00` or `0:45`** (`format.ts`, `parseDuration`) instead of in
@@ -483,6 +503,11 @@ Ideas that are not needed now but are worth knowing about.
     - [x] Edit days: create, edit, delete
     - [x] Jobs: create, rename, archive, delete
     - [x] Schedules per job
+    - [ ] Flex adjustments
+    - [ ] Hours-only jobs: `jobs.kind` (`"scheduled"` or `"hours"`), set when the job is created.
+      An hours job gets a schedule with no hours, created with it in one transaction, so every
+      calculation stays the same; the UI shows worked hours instead of balance, flex and
+      leave-at, and no schedules. A job never changes kind.
     - [ ] Served by axum from the same container
 - [ ] Authentication
 - [ ] Backups (`VACUUM INTO` + off-device copy) and a `deploy.sh`

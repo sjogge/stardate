@@ -106,7 +106,8 @@ Before considering work done: fmt, clippy (no warnings) and build must pass.
   above the layer; `/api/health` stays below it to avoid log noise.
 - Keep calculation logic in a pure module (no I/O, no database) so it is easy to test later.
 - Domain decisions to keep consistent (details in the spec): days keep their schedule snapshot, so
-  schedule edits never change history; open days are left out of the flex balance and summary
+  schedule edits never change history; creating a day needs a schedule covering its date (409),
+  so worked time never silently counts as overtime; open days are left out of the flex balance and summary
   totals until clocked out; only archived jobs can be deleted, and deleting cascades to all their
   data.
 - Backend tests are deferred by decision; do not add backend test infrastructure unless asked.

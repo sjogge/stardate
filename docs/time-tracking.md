@@ -143,7 +143,13 @@ so active history cannot be lost by a single request.
 
 - The schedule for a date is the job's schedule with the latest `valid_from <= work_date`.
 - The weekday row of that schedule gives expected work, lunch and break minutes. If there is no
-  schedule or no row for that weekday, all expected values are 0 (all worked time is overtime).
+  row for that weekday (e.g. a Saturday), all expected values are 0 (all worked time is overtime).
+- **A schedule must cover the date.** Creating a day (also by clock-in) or re-taking its snapshot
+  (`refreshExpected`) on a date before the job's first schedule is a 409: otherwise every minute
+  would silently count as overtime.
+- A **bonus day** is work on a day the schedule expects work, but nothing is owed (e.g. a public
+  holiday): it is registered with `expected` work, lunch and break minutes set to 0, so all worked
+  time counts as plus.
 - When a work day is **created**, these values and the paid flags are copied into the work day.
 - Schedules and their weekday rows may be edited or deleted freely. This never changes existing
   work days, only days created afterwards.
@@ -254,7 +260,7 @@ Live actions (`clock-in`, `clock-out`, `pauses/start`, `pauses/end`) need no `If
 guarded by the day's state and answer 409 when it does not fit:
 
 - `clock-in`: 409 if the job is archived, if a day is already open ("already clocked in on <date>"),
-  or if a day is already registered for `workDate`. `workDate` may differ from the UTC date of `at`
+  if a day is already registered for `workDate`, or if no schedule covers `workDate`. `workDate` may differ from the UTC date of `at`
   by at most one day (the client's local date). The day is created with its schedule snapshot.
 - `clock-out`: 409 if not clocked in. A running pause is ended at the same time. 400 if `at` is not
   after clock-in, the day would exceed 24 hours, or a logged pause lies after `at`.
@@ -283,12 +289,13 @@ response.
 `availableActions` lists the live actions that will not answer 409, so clients do not re-derive
 the rules:
 
-| State                              | `availableActions`           |
-| ---------------------------------- | ---------------------------- |
-| No day on `date`                   | `["clockIn"]`                |
-| Clocked in, no pause running       | `["startPause", "clockOut"]` |
-| Clocked in, a pause running        | `["endPause", "clockOut"]`   |
-| Day on `date` closed, or flex day  | `[]`                         |
+| State                                   | `availableActions`           |
+| --------------------------------------- | ---------------------------- |
+| No day on `date`, a schedule covers it  | `["clockIn"]`                |
+| No day on `date`, no schedule covers it | `[]`                         |
+| Clocked in, no pause running            | `["startPause", "clockOut"]` |
+| Clocked in, a pause running             | `["endPause", "clockOut"]`   |
+| Day on `date` closed, or flex day       | `[]`                         |
 
 `startPause` covers every pause kind. Without `date`, a day already registered today is unknown,
 so `clockIn` may still answer 409.
@@ -320,6 +327,7 @@ If-None-Match: *
 - `expected` overrides individual snapshot values (`workMinutes`, `lunchMinutes`, `breakMinutes`,
   `lunchPaid`, `breaksPaid`) on create or replace. `refreshExpected: true` re-takes the snapshot on
   replace. Sending both is a 400.
+- Creating a day, or `refreshExpected`, needs a schedule covering the date: 409 otherwise.
 - Only one open work day per job: a second open day is a 409.
 
 `GET /jobs/{id}/days?from=&to=` takes inclusive dates and covers at most 366 days.
