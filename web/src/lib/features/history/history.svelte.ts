@@ -1,11 +1,12 @@
 import { api } from '$lib/api/client';
-import type { Day, Job, RangeTotals, Summary } from '$lib/api/types';
+import type { Day, FlexAdjustment, FlexBalance, Job, RangeTotals, Summary } from '$lib/api/types';
 import { todayIsoDate } from '$lib/format';
 import { showSuccess } from '$lib/toast';
+import type { AdjustmentRequest } from './adjustmentForm';
 import type { DayRequest } from './dayForm';
 import { isSameMonth, monthOf, monthRange, shiftMonth, type Month } from './month';
 
-/** State of the history screen: one job's days and totals for one month. */
+/** State of the history screen: one job's days and totals for one month, and its flex balance. */
 export class History {
 	jobs = $state<Job[]>([]);
 	jobId = $state<number>();
@@ -13,6 +14,10 @@ export class History {
 	/** Oldest first, as the API returns them */
 	days = $state<Day[]>([]);
 	totals = $state<RangeTotals>();
+	/** All-time, not just the month: closed days plus every adjustment */
+	flex = $state<FlexBalance>();
+	/** Oldest first, as the API returns them */
+	adjustments = $state<FlexAdjustment[]>([]);
 	/** A load is in flight */
 	loading = $state(true);
 	failed = $state(false);
@@ -23,6 +28,10 @@ export class History {
 
 	get newestFirst(): Day[] {
 		return this.days.toReversed();
+	}
+
+	get newestAdjustmentsFirst(): FlexAdjustment[] {
+		return this.adjustments.toReversed();
 	}
 
 	/** Later months have no registered days yet, so the screen does not page past this one */
@@ -74,12 +83,17 @@ export class History {
 		const options = { signal: controller.signal };
 		this.loading = true;
 		try {
-			const [days, summary] = await Promise.all([
+			// Loaded together: a change to a day or an adjustment moves the month and the balance
+			const [days, summary, flex, adjustments] = await Promise.all([
 				api.get<Day[]>(`${job}/days?from=${from}&to=${to}`, options),
-				api.get<Summary>(`${job}/summary?from=${from}&to=${to}`, options)
+				api.get<Summary>(`${job}/summary?from=${from}&to=${to}`, options),
+				api.get<FlexBalance>(`${job}/flex`, options),
+				api.get<FlexAdjustment[]>(`${job}/flex-adjustments`, options)
 			]);
 			this.days = days;
 			this.totals = summary.totals;
+			this.flex = flex;
+			this.adjustments = adjustments;
 			this.failed = false;
 		} catch {
 			// Already toasted; an aborted load is followed by a newer one
@@ -105,6 +119,28 @@ export class History {
 		return this.#change(
 			() => api.delete(`/jobs/${this.jobId}/days/${day.workDate}`, { ifMatch: day.version }),
 			'Day deleted'
+		);
+	}
+
+	/** Adds an adjustment, or replaces `existing` if given */
+	saveAdjustment(request: AdjustmentRequest, existing?: FlexAdjustment): Promise<boolean> {
+		const path = `/jobs/${this.jobId}/flex-adjustments`;
+		return this.#change(
+			() =>
+				existing
+					? api.put(`${path}/${existing.id}`, { body: request, ifMatch: existing.version })
+					: api.post(path, { body: request }),
+			existing ? 'Adjustment saved' : 'Flex balance adjusted'
+		);
+	}
+
+	removeAdjustment(adjustment: FlexAdjustment): Promise<boolean> {
+		return this.#change(
+			() =>
+				api.delete(`/jobs/${this.jobId}/flex-adjustments/${adjustment.id}`, {
+					ifMatch: adjustment.version
+				}),
+			'Adjustment deleted'
 		);
 	}
 
