@@ -18,8 +18,8 @@ small: one Rust binary with SQLite compiled in.
 | Docker image + Compose                                                                            | Done                                               |
 | Data model and schema                                                                             | Done (`0001_time_tracking.sql`)                    |
 | API: jobs, schedules                                                                              | Done                                               |
-| API: days, clock-in/out, pauses, summary, flex, status                                            | In progress                                        |
-| Frontend (Svelte)                                                                                 | Not started                                        |
+| API: days, clock-in/out, pauses, summary, flex, status                                            | Done                                               |
+| Frontend (Svelte)                                                                                 | In progress (scaffolded in `web/`)                 |
 | Tests                                                                                             | Later                                              |
 | Authentication                                                                                    | Later. **Do not expose beyond the LAN until then** |
 
@@ -30,7 +30,8 @@ The domain model, rules and full API are specified in
 
 - **Backend:** Rust, axum, sqlx (SQLite), tokio, time, tracing, anyhow
 - **Database:** SQLite (bundled into the binary, file stored in a Docker volume)
-- **Frontend:** Svelte + Vite (planned), served as static files by axum
+- **Frontend:** SvelteKit 2 + Svelte 5 SPA (TypeScript, Tailwind CSS v4, Skeleton v5), built to
+  static files that axum will serve from the same origin
 - **Runtime:** Docker on a Raspberry Pi (arm64)
 
 ## Project structure
@@ -61,6 +62,21 @@ stardate/
 │       ├── summary.rs       # per-day and range totals
 │       ├── flex.rs          # flex balance and adjustments
 │       └── status.rs        # start-screen status of all active jobs
+├── web/                     # Svelte SPA; rules in web/CLAUDE.md
+│   ├── package.json         # npm scripts: dev, check, lint, format, test, build
+│   ├── vite.config.ts       # SvelteKit, static adapter, /api dev proxy, Vitest
+│   └── src/
+│       ├── app.html         # sets theme and light/dark mode before first paint
+│       ├── lib/
+│       │   ├── api/client.ts  # the only fetch: ApiError, If-Match, one global error handler
+│       │   ├── api/types.ts   # response types, matching the Rust DTOs
+│       │   ├── components/    # reusable UI: AppNavigation (bottom bar / side rail), ConfirmDialog
+│       │   ├── features/      # per feature: workday/ (Today), history/, jobs/, schedules/, settings/
+│       │   ├── format.ts      # display formatting: durations, balances, local times and dates
+│       │   ├── theme.svelte.ts  # theme and light/dark/system choice, stored in localStorage
+│       │   └── toast.ts       # the toaster; identical error toasts are shown once
+│       ├── params/          # route matchers: integer ids, e.g. /jobs/[jobId=integer]
+│       └── routes/          # thin pages (/, /history, /jobs, /jobs/{id}, /settings); +layout.ts turns off SSR
 ├── docs/
 │   └── time-tracking.md     # domain and API specification
 ├── compose.yaml
@@ -68,7 +84,7 @@ stardate/
 └── README.md
 ```
 
-Planned addition: a `frontend/` folder whose build is served by axum from the same container.
+Planned: the `web/` build is served by axum from the same container.
 
 ## Configuration
 
@@ -97,6 +113,24 @@ Before committing, from `backend/`:
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo build
+```
+
+### Frontend
+
+With the backend running on port 3000, from `web/`:
+
+```sh
+npm ci
+npm run dev        # http://localhost:5173, /api is proxied to the backend
+```
+
+Before committing, from `web/`:
+
+```sh
+npm run check
+npm run lint
+npm test           # component tests need Chromium once: npx playwright install chromium
+npm run build
 ```
 
 ## Run with Docker
@@ -162,7 +196,7 @@ UTC; dates are `YYYY-MM-DD`.
 | POST   | `/api/jobs/{id}/flex-adjustments` | `{ "adjustedOn": "...", "minutes": 120, "note"?: "..." }` |
 | PUT    | `/api/jobs/{id}/flex-adjustments/{adjustmentId}` | Edit an adjustment (requires `If-Match`) |
 | DELETE | `/api/jobs/{id}/flex-adjustments/{adjustmentId}` | Delete an adjustment (requires `If-Match`) |
-| GET    | `/api/status?date=` | Every active job: clocked in, running pause, today's day, flex balance |
+| GET    | `/api/status?date=` | Every active job: clocked in, running pause, valid live actions, today's day, flex balance |
 
 The full specification is in the API section of [`docs/time-tracking.md`](docs/time-tracking.md).
 
@@ -181,7 +215,7 @@ Errors are returned as JSON `{ "message": "..." }`:
 | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
 | 400    | Validation failed, a CHECK / NOT NULL constraint was violated, malformed JSON, an invalid path value, or a malformed `If-Match` |
 | 404    | Resource not found                                                                                                              |
-| 409    | Unique or foreign key constraint violated (e.g. duplicate job name or deleting a job that is not archived)                      |
+| 409    | Unique or foreign key constraint violated, or the state does not allow it (e.g. duplicate job name, deleting a job that is not archived, a day on a date no schedule covers) |
 | 412    | `If-Match` version is out of date: the resource was modified by another request                                                 |
 | 413    | Request body too large                                                                                                          |
 | 415    | `Content-Type: application/json` missing on a request with a JSON body                                                          |
@@ -238,6 +272,137 @@ Preconditions go into the write statement itself instead of a separate check bef
 - Reads are scoped the same way, by joining through `jobs.user_id`. Authentication will only have
   to change how `CurrentUser` is resolved.
 
+### Valid live actions come from the backend
+
+`GET /api/status` returns `availableActions` per job (`clockIn`, `clockOut`, `startPause`,
+`endPause`), computed by `live::available_actions` next to the handlers whose guards it mirrors.
+
+- **Why:** which action is valid is a business rule. Every client must agree on it, so the
+  frontend shows the buttons it is given instead of re-deriving them from `clockedIn` and
+  `runningPause`.
+- The list says what is allowed, not what to show first. Picking the primary button (e.g. lunch
+  before break) is presentation and stays in the frontend.
+- Without `date`, a day already registered today is unknown, so `clockIn` can still answer 409.
+
+### Versions travel in the body; `If-Match` sends them back
+
+Versioned resources return their version twice: in the body (`version`) and in the `ETag` header.
+The frontend reads the body and sends the version back in the standard `If-Match` header.
+
+- **Why not read the `ETag` header:** list responses (e.g. `GET /jobs/{id}/days`) hold many
+  versioned items but can have only one header, so the body version is needed anyway. Reading it
+  everywhere keeps one way of doing it, and the version stays with its data in Svelte state.
+- **Why the backend still sends `ETag`:** it costs nothing and lets generic HTTP tools use it.
+  Conditional `GET` (`If-None-Match`, 304) is not used: responses are small and the app always
+  wants fresh data.
+
+### The workday screen picks the primary button, the backend picks what is allowed
+
+`GET /api/status` lists the allowed live actions per job (`availableActions`). The frontend only
+decides how to show them (`features/workday/actions.ts`): the most likely next step becomes the
+large button, the others are smaller.
+
+- Order: clock in; else end the running pause; else start lunch while lunch is expected and none
+  is logged; else clock out. Starting a break or an absence stays available as a smaller button.
+- The screen reloads the status after every action (also after a failed one, since the state may
+  have changed on another device), every minute while visible, and when the tab becomes visible
+  again. Worked time and leave-at are computed by the server at each load, so there is no client
+  clock to drift.
+
+### A schedule must cover every registered day
+
+Creating a day, clocking in or re-taking a day's snapshot on a date before the job's first schedule
+answers 409. `GET /status` then offers no `clockIn`, and the Today screen links to the job's
+schedules instead.
+
+- **Why:** a day with no schedule has nothing expected, so every minute silently counted as
+  overtime, e.g. +9:00 for a normal 9-hour day registered before the schedule's date.
+- A weekday without hours in a covering schedule (a Saturday) is still allowed: it has nothing
+  expected, so its work is plus time. A **bonus day** does the same for a weekday with hours, such
+  as a public holiday (see the day editor).
+- Someone without a set schedule (e.g. a contractor) adds one schedule with no hours on any day;
+  "Hours-only jobs" on the roadmap will make that a choice when creating the job.
+
+### The day editor
+
+Days are added and edited on the History screen in a dialog (full screen on phones), sent as
+`PUT /jobs/{id}/days/{date}`.
+
+- **Times are local and relative to the work date.** An end or pause time before the start is on the
+  next calendar day, so a shift from 22:00 to 06:00 needs no second date field. "Next day" is the
+  next calendar date, not 24 hours later, so a night across a daylight saving change stays right.
+- **A pause is either timed (start and end) or a length** (`0:45`), matching the API. An empty end
+  keeps the day open.
+- **Create cannot overwrite:** a new day is sent with `If-None-Match: *`, an edit with `If-Match`.
+  A date already in the shown month is caught in the form, since the backend's 412 only says the
+  resource changed.
+- **The date of a registered day is fixed**, as in the API: moving a day means deleting it and adding
+  it again, because its schedule snapshot depends on the date.
+- **Bonus day** (a checkbox for work days) sends `expected` work, lunch and break as 0: work on a
+  day the schedule expects some but nothing is owed, e.g. a public holiday. Unticking it sends
+  `refreshExpected`, so the day takes the schedule's times again. A day registered with nothing
+  expected shows up ticked, which also covers a Saturday.
+- Overriding single expected values (e.g. a half day) is not in the form (see Possible
+  improvements).
+
+### English text, local clock times
+
+The UI text is English, including weekday and month names (`format.ts`, `textLocale`): an English
+device locale keeps its own variant (en-US: `Oct 26`), any other gets British English (`26 Oct`).
+Clock times follow the device's locale (`formatTime`), so they read `08:02` or `8:02 AM` as the
+person is used to. Native date and time inputs are the browser's own and always follow its locale
+(e.g. `2026-10-26` in Swedish).
+
+- **Why not a setting:** the device locale already says whether someone uses 24-hour or am/pm
+  time. A 12/24-hour setting would only be needed for people whose locale does not match their
+  preference.
+
+### The schedule form
+
+A job's schedules are edited at `/jobs/{id}` in a dialog (full screen on phones).
+
+- **A new version starts as a copy of the latest one,** since a change from a certain date usually
+  changes little. The "applies from" date and its effect are shown first: days already registered
+  keep their snapshot, so a schedule change never alters history.
+- **A job's first schedule has no default date.** Days can only be registered on dates a schedule
+  covers, so the form asks for it and suggests the first day you track.
+- **Paid lunch and breaks have no default** for a job's first schedule, matching the backend
+  (`ScheduleRequest` has no defaults): the form asks until both are chosen.
+- **Durations are typed as `8`, `8:00` or `0:45`** (`format.ts`, `parseDuration`) instead of in
+  minutes or with `<input type="time">`, which would show a clock (AM/PM in some locales) for what
+  is a duration. A weekday left empty means no work is expected that day.
+- **The form validates itself** (`novalidate`, `scheduleForm.ts`) and shows the first problem in one
+  alert, naming the weekday and field; the backend still validates every request.
+
+### Back-dated actions send a local date and time
+
+"Use a different time" on the workday screen sends the next action with `at` (an RFC 3339
+instant) instead of letting the server use its current time; e.g. for a forgotten clock-in.
+
+- The date and time inputs are read in the device's time zone and sent in UTC
+  (`format.ts`, `toInstant`). The server stays timezone-agnostic.
+- A back-dated clock-in is registered on the chosen date (`workDate`), so a forgotten night shift
+  lands on the day it started. The server accepts a `workDate` at most one day from `at`.
+- The choice applies to one action and then resets, so the next action happens now again.
+- Times in the future are left to the server (400, shown as a toast); the inputs only block an
+  incomplete date or time.
+- A whole forgotten day is registered with `PUT /jobs/{id}/days/{date}` instead (History and
+  edits).
+
+### Theme applied before first paint
+
+The theme and light/dark mode are set on `<html>` (`data-theme`, `data-mode`) by an inline script in
+`web/src/app.html`, before the app loads. After that, `lib/theme.svelte.ts` keeps them up to date.
+
+- **Why:** a script that runs after the app loads would show the default theme for a moment
+  (a flash) on every reload.
+- **Trade-off:** the inline script cannot import TypeScript, so the theme list and the storage keys
+  are in three places: `app.html`, `lib/theme.svelte.ts` and the theme imports in
+  `routes/layout.css`. Each has a comment pointing to the others.
+- Dark mode uses `data-mode` instead of only the OS setting (a `@custom-variant dark` in
+  `layout.css`), so "light" and "dark" can override the OS; "system" follows it, also while the app
+  is open.
+
 ## Deploy to the Raspberry Pi
 
 Build an arm64 image on a PC and copy it to the Pi.
@@ -281,6 +446,42 @@ Ideas that are not needed now but are worth knowing about.
   types cannot fail to serialize. It would matter for types such as maps with non-string keys, or
   dates outside years 0000–9999.
 
+- **Clock-out in the same second a pause started.** Clocking out at the same second as the
+  running pause's start answers 400 "a pause lies after the clock-out time". `clock_out` only
+  ends a running pause when `started_at < at`, so the pause stays open and the following
+  "outside the day" check rejects it. Rare by hand, but easy to hit from a script or a double
+  tap. Possible fixes: delete a running pause that has no duration yet, or answer 409 with a
+  clearer message.
+
+- **Handle 401 in the frontend once authentication exists.** `web/CLAUDE.md` asks for a 401 to
+  redirect to sign-in instead of showing a toast. There is no authentication or sign-in page yet,
+  so today a 401 is shown like any other error. When authentication lands: in
+  `web/src/lib/api/client.ts`, send a 401 to the sign-in page instead of the error handler, and add
+  a client test for it.
+
+- **Friendlier message for a duplicate job name.** Creating or renaming a job to a name that
+  already exists answers 409 with the generic "resource already exists" (`AppError` maps every
+  unique violation to it). `jobs.rs` could check for that case and answer "a job with this name
+  already exists" instead, so the toast says what to change.
+
+- **12/24-hour and date format as a user setting.** Clock times follow the device locale today.
+  A setting in Settings could override it for people whose locale does not match their preference,
+  passed as `hourCycle` to `formatTime`. Native date and time inputs would still follow the browser.
+
+- **Loading skeletons shaped like the content.** Screens show a plain pulsing block while loading.
+  Placeholders in the shape of what is coming (a status card with its four values, a few list
+  rows, a table) would make loading feel faster and keep the layout from jumping when the data
+  arrives. Skeleton's `placeholder` class can be combined into such shapes per screen.
+
+- **Clear message when a new day's date is taken.** `PUT /jobs/{id}/days/{date}` with
+  `If-None-Match: *` answers 412 with the generic "Resource was modified by another request" when
+  the day exists. A 409 "a day is already registered on this date" would explain it; the form only
+  catches dates in the month it shows.
+
+- **Expected times per day in the day editor.** The API can override a day's snapshot (`expected`)
+  or re-take it from the current schedule (`refreshExpected`), e.g. after fixing a schedule that was
+  wrong when the day was registered. The form does not offer either yet.
+
 ## Roadmap
 
 - [x] Data model: jobs, versioned schedules, work days, pauses, flex adjustments (UTC instants)
@@ -295,6 +496,19 @@ Ideas that are not needed now but are worth knowing about.
 - [x] Summary, flex balance, flex adjustments and status
 - [ ] Tests
 - [ ] Svelte frontend, served by axum
+    - [x] Scaffold, API client with error toasts, app shell with theme settings
+    - [x] Workday screen: status per job, live actions
+    - [x] Back-dated entries (date and time pickers)
+    - [x] History: days and totals per month
+    - [x] Edit days: create, edit, delete
+    - [x] Jobs: create, rename, archive, delete
+    - [x] Schedules per job
+    - [ ] Flex adjustments
+    - [ ] Hours-only jobs: `jobs.kind` (`"scheduled"` or `"hours"`), set when the job is created.
+      An hours job gets a schedule with no hours, created with it in one transaction, so every
+      calculation stays the same; the UI shows worked hours instead of balance, flex and
+      leave-at, and no schedules. A job never changes kind.
+    - [ ] Served by axum from the same container
 - [ ] Authentication
 - [ ] Backups (`VACUUM INTO` + off-device copy) and a `deploy.sh`
 - [ ] CI (fmt, clippy, test, arm64 image build)

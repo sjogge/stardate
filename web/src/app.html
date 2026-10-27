@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en" data-theme="catppuccin" data-mode="light">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="text-scale" content="scale" />
+		<script>
+			// Runs before first paint so the stored theme never flashes the default one
+			// Keys and themes: keep in sync with lib/theme.svelte.ts (lib/theme.test.ts checks the themes)
+			(() => {
+				const themes = [
+					'catppuccin',
+					'dracula',
+					'mint',
+					'nouveau',
+					'vox',
+					'wintry',
+					'crimson',
+					'legacy'
+				];
+				const read = (key) => {
+					try {
+						return localStorage.getItem(key);
+					} catch {
+						return null;
+					}
+				};
+				const theme = read('stardate-theme');
+				const mode = read('stardate-mode');
+				const prefersDark = matchMedia('(prefers-color-scheme: dark)').matches;
+				const root = document.documentElement;
+				if (themes.includes(theme)) root.dataset.theme = theme;
+				root.dataset.mode =
+					mode === 'light' || mode === 'dark' ? mode : prefersDark ? 'dark' : 'light';
+			})();
+		</script>
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>

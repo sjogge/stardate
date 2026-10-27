@@ -724,7 +724,8 @@ async fn delete_day(
 // ---------- Helpers ----------
 
 /// Copies the expected values of the schedule valid on `work_date` into the day.
-/// No schedule, or no row for that weekday, means everything expected is 0.
+/// No row for that weekday means everything expected is 0 (e.g. a Saturday). No schedule
+/// at all is a 409: every minute would silently count as overtime.
 pub(crate) async fn take_snapshot(
     tx: &mut SqliteConnection,
     day_id: i64,
@@ -732,16 +733,22 @@ pub(crate) async fn take_snapshot(
 ) -> Result<(), AppError> {
     let weekday = i64::from(work_date.weekday().number_from_monday());
 
-    sqlx::query(
+    let schedule_id = sqlx::query_scalar::<_, Option<i64>>(
         "UPDATE work_days SET schedule_id = ( \
              SELECT id FROM schedules \
              WHERE job_id = work_days.job_id AND valid_from <= work_days.work_date \
              ORDER BY valid_from DESC LIMIT 1) \
-         WHERE id = ?",
+         WHERE id = ? RETURNING schedule_id",
     )
     .bind(day_id)
-    .execute(&mut *tx)
+    .fetch_one(&mut *tx)
     .await?;
+    // The caller's transaction rolls back when it is dropped with this error
+    if schedule_id.is_none() {
+        return Err(AppError::Conflict(format!(
+            "no schedule covers {work_date}; add one that starts on or before that date"
+        )));
+    }
 
     sqlx::query(
         "UPDATE work_days SET \

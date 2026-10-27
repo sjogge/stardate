@@ -3,7 +3,7 @@
 //! fit), and each bumps the day's version so open edit forms see the change.
 
 use axum::{Router, extract::State, http::StatusCode, routing::post};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqliteConnection, SqlitePool};
 use time::{Date, Duration, OffsetDateTime};
 
@@ -39,6 +39,36 @@ pub struct PauseStartRequest {
     kind: PauseKind,
     #[serde(default, with = "time::serde::rfc3339::option")]
     at: Option<OffsetDateTime>,
+}
+
+/// A live action that today's state allows. Mirrors the guards of the handlers below,
+/// so clients only offer actions that will not answer 409.
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LiveAction {
+    ClockIn,
+    ClockOut,
+    StartPause,
+    EndPause,
+}
+
+/// `today` is the open day, or else the day registered on the client's date.
+/// `schedule_covers_date`: clock-in needs a schedule valid on that date.
+/// Expects an active job: archived jobs allow no action.
+pub fn available_actions(
+    today: Option<&DayResponse>,
+    schedule_covers_date: bool,
+) -> Vec<LiveAction> {
+    match today {
+        None if schedule_covers_date => vec![LiveAction::ClockIn],
+        None => Vec::new(),
+        Some(day) if !day.is_open() => Vec::new(),
+        // Clocking out also ends the running pause
+        Some(day) if day.running_pause().is_some() => {
+            vec![LiveAction::EndPause, LiveAction::ClockOut]
+        }
+        Some(_) => vec![LiveAction::StartPause, LiveAction::ClockOut],
+    }
 }
 
 pub fn routes() -> Router<SqlitePool> {

@@ -13,6 +13,7 @@ use crate::{
     error::AppError,
     extract::{AppJson, AppQuery},
     flex,
+    live::{self, LiveAction},
 };
 
 #[derive(Deserialize)]
@@ -28,6 +29,9 @@ pub struct JobStatus {
     job_name: String,
     clocked_in: bool,
     running_pause: Option<RunningPause>,
+    /// The live actions that are valid now. Without `date`, a day already registered
+    /// today is unknown, so `clockIn` may still answer 409.
+    available_actions: Vec<LiveAction>,
     /// The open day, or else the day registered on `date`, if any
     today: Option<DayResponse>,
     /// Closed days and all adjustments; today's open day counts once clocked out
@@ -43,18 +47,22 @@ pub async fn status(
     // Read-only transaction: every job's values come from one snapshot
     let mut tx = pool.begin().await?;
 
-    let jobs = sqlx::query_as::<_, (i64, String, Option<Date>)>(
+    // Without `date` the client's day is unknown, so clock-in is offered and checked when sent
+    let jobs = sqlx::query_as::<_, (i64, String, Option<Date>, bool)>(
         "SELECT j.id, j.name, \
          (SELECT work_date FROM work_days \
-          WHERE job_id = j.id AND kind = 'work' AND ended_at IS NULL) \
+          WHERE job_id = j.id AND kind = 'work' AND ended_at IS NULL), \
+         ? IS NULL OR EXISTS (SELECT 1 FROM schedules WHERE job_id = j.id AND valid_from <= ?) \
          FROM jobs j WHERE j.user_id = ? AND j.archived_at IS NULL ORDER BY j.name",
     )
+    .bind(query.date)
+    .bind(query.date)
     .bind(user.id)
     .fetch_all(&mut *tx)
     .await?;
 
     let mut statuses = Vec::with_capacity(jobs.len());
-    for (job_id, job_name, open_date) in jobs {
+    for (job_id, job_name, open_date, schedule_covers_date) in jobs {
         let today = match open_date.or(query.date) {
             Some(date) => days::load_day(&mut tx, job_id, date, user.id).await?,
             None => None,
@@ -66,6 +74,7 @@ pub async fn status(
             job_name,
             clocked_in: today.as_ref().is_some_and(DayResponse::is_open),
             running_pause: today.as_ref().and_then(DayResponse::running_pause),
+            available_actions: live::available_actions(today.as_ref(), schedule_covers_date),
             today,
             flex_balance_minutes: calc::whole_minutes(balance.total()),
         });

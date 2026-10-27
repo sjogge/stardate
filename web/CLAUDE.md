@@ -11,10 +11,10 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 
 - SvelteKit 2 + Svelte 5 (runes and snippets only, no legacy `$:` or `export let`, no `svelte/store` for new code).
 - TypeScript in strict mode.
-- Vite (current stable). Do not use SvelteKit 3 pre-releases.
+- Vite (current stable). Stay on SvelteKit 2: Kit 3 is stable since 2026-10 but not adopted yet (Skeleton v5 targets Kit 2). `sv@0.17.1` is the last `sv` release that scaffolds Kit 2.
 - Tailwind CSS v4 (CSS-first config, `@tailwindcss/vite` plugin, no `tailwind.config.js`).
 - Skeleton v5 (`@skeletonlabs/skeleton` + `@skeletonlabs/skeleton-svelte`). Use its Tailwind components and Svelte framework components before writing custom ones.
-- Icons: `lucide-svelte`.
+- Icons: `@lucide/svelte` (`lucide-svelte` is deprecated).
 - Documentation: https://www.skeleton.dev/docs/svelte/get-started/introduction and the LLM page at https://www.skeleton.dev/docs/svelte/resources/llms. Skeleton v5 differs from v4, so ignore v4 examples. If you cannot read the docs, ask me instead of guessing the API.
 
 ## Delivery model
@@ -29,10 +29,10 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 - The backend does as much of the calculations (durations, totals, breaks, overtime, schedule resolution) as possible. The frontend only displays what the API returns and formats it. Never compute business values client-side.
 - Formatting and parsing of dates and times uses `Intl` and ISO 8601 strings. Keep timestamps and time zones as the API provides them.
 - Structure:
-    - `src/lib/api/` typed API client and DTO types
-    - `src/lib/components/` reusable UI
-    - `src/lib/features/<feature>/` feature-specific components and state
-    - `src/routes/` pages only, kept thin
+  - `src/lib/api/` typed API client and DTO types
+  - `src/lib/components/` reusable UI
+  - `src/lib/features/<feature>/` feature-specific components and state
+  - `src/routes/` pages only, kept thin
 - All HTTP goes through one client in `src/lib/api/client.ts`. No `fetch` calls in components.
 - Shared state uses Svelte 5 runes in `.svelte.ts` modules.
 - Never store auth tokens in `localStorage`. Auth uses whatever the backend provides (prefer httpOnly cookie). Never use `{@html}` with API data.
@@ -42,9 +42,9 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 - Every non-2xx response and every network failure shows an error toast. The API client throws a typed `ApiError` and a single global handler turns it into a toast, so feature code does not repeat this.
 - Align `ApiError` parsing with the backend's actual error response type: read it in the Rust code before implementing. Show the backend's user-facing message, falling back to a generic message. Never show stack traces or raw response bodies.
 - Exceptions:
-    - 401 redirects to sign-in instead of toasting repeatedly.
-    - Aborted requests show no toast.
-    - Validation errors (400/422) also mark the relevant form fields where the response identifies them.
+  - 401 redirects to sign-in instead of toasting repeatedly. Deferred until authentication exists (README, "Possible improvements").
+  - Aborted requests show no toast.
+  - Validation errors (400/422) also mark the relevant form fields where the response identifies them.
 - Deduplicate identical toasts fired in quick succession.
 - Use Skeleton's Toast component with one toaster instance exposed from `src/lib/toast.ts` and rendered once in the root layout. Mutations show a short success toast.
 
@@ -52,9 +52,9 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 
 - Mobile first, modern, uncluttered. Test at 360px width before desktop.
 - Navigation: bottom navigation on mobile, side rail or top links from the `md` breakpoint.
-- Theme selector: pick from a small curated list of Skeleton themes plus light/dark/system mode. Apply via `data-theme` on `<html>` and persist the choice in `localStorage`. Set it in an inline script in `app.html` before first paint to avoid a flash. Use system default if not available.
+- Theme selector: pick from a small curated list of Skeleton themes (Catppuccin as the default, then Dracula, Mint, Nouveau, Vox, Wintry, Crimson, Legacy) plus light/dark/system mode. The list is in `app.html`, `lib/theme.svelte.ts` and the imports in `routes/layout.css`; `lib/theme.test.ts` fails when they differ. Apply via `data-theme` on `<html>` and persist the choice in `localStorage`. Set it in an inline script in `app.html` before first paint to avoid a flash. Use system default if not available.
 - Use Skeleton design tokens and presets for color and spacing. No hardcoded colors.
-- The UI text is English.
+- The UI text is English, including weekday and month names (`textLocale` in `lib/format.ts`). Clock times follow the device's locale (24-hour or am/pm); native date and time inputs follow the browser's.
 
 ## Workflows
 
@@ -85,8 +85,9 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 
 ## Verification
 
-- Run `npm run check` (svelte-check), lint, format check, and `npm run build` before considering work complete and fix errors you introduced.
-- Add Vitest tests for the API client (error mapping to toasts, 401 handling) and for non-trivial components. Tests must be deterministic and mock the network.
+- Run `npm run check` (svelte-check), `npm run lint` (Prettier check and ESLint), `npm test` and `npm run build` before considering work complete and fix errors you introduced.
+- Component tests (`*.svelte.test.ts`) run in Vitest browser mode with Playwright; other tests (`*.test.ts`) run in Node. Browser mode needs Chromium once: `npx playwright install chromium`.
+- Add Vitest tests for the API client (error mapping to toasts; 401 handling once authentication exists) and for non-trivial components. Tests must be deterministic and mock the network.
 
 ## Safety
 
@@ -97,7 +98,8 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 
 - Read and understand `../CLAUDE.md`
 - Since Read the API from the type definitions inside the npm packages (@skeletonlabs/skeleton-svelte ships them). They’re authoritative for v5, but have no usage examples.
-- The human user paste the relevant parts of https://www.skeleton.dev/docs/svelte/resources/llms when we need them.
+- Local LLM docs are in `web/llm/`: `llms-full-svelte.txt` (Svelte and SvelteKit) and `llms-svelte-skeleton.txt` (Skeleton v5). They are large, so search them for the section you need (e.g. `# Toast`) instead of reading them whole.
+- Usage in this app: `api` from `$lib/api/client` for every request; errors are toasted by the handler set in the root layout, so callers only handle what changes their own UI.
 
 # Tooling
 

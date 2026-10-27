@@ -14,7 +14,7 @@ README ("Design decisions"); the roadmap and possible improvements are there too
 - Backend: Rust (edition 2024), Axum 0.8, Tokio, sqlx 0.9 with SQLite, `tracing`, `anyhow` in `main`
 - Time: the `time` crate (`serde-human-readable` feature: dates as `YYYY-MM-DD`). No timezone database
   on the server.
-- Frontend: SvelteKit + Svelte 5 SPA in `web/` (see `web/CLAUDE.md`), served as static files by
+- Frontend: SvelteKit 2 + Svelte 5 SPA in `web/` (see `web/CLAUDE.md`), served as static files by
   Axum from the same origin once the pages work.
 - Deployment: multi-stage `backend/Dockerfile` (Alpine, non-root UID 10001), `compose.yaml` with a
   hardened service and the database on a volume at `/data`.
@@ -39,7 +39,8 @@ backend/
     jobs.rs                # /api/jobs
     schedules.rs           # /api/jobs/{job_id}/schedules
     days.rs                # /api/jobs/{job_id}/days: register, edit, delete days; snapshot helpers
-    live.rs                # /api/jobs/{job_id}/clock-in, clock-out, pauses/start, pauses/end
+    live.rs                # /api/jobs/{job_id}/clock-in, clock-out, pauses/start, pauses/end;
+                           # available_actions (which of them are valid, for /api/status)
     summary.rs             # /api/jobs/{job_id}/summary
     flex.rs                # /api/jobs/{job_id}/flex, flex-adjustments; flex::balance
     status.rs              # /api/status
@@ -77,7 +78,7 @@ cargo build
 DATABASE_URL=sqlite:stardate.db cargo run
 ```
 
-From the repo root: `docker compose up -d --build`.
+From the repo root: `docker compose up -d --build`. Frontend commands are in `web/CLAUDE.md`.
 
 Before considering work done: fmt, clippy (no warnings) and build must pass.
 
@@ -105,7 +106,8 @@ Before considering work done: fmt, clippy (no warnings) and build must pass.
   above the layer; `/api/health` stays below it to avoid log noise.
 - Keep calculation logic in a pure module (no I/O, no database) so it is easy to test later.
 - Domain decisions to keep consistent (details in the spec): days keep their schedule snapshot, so
-  schedule edits never change history; open days are left out of the flex balance and summary
+  schedule edits never change history; creating a day needs a schedule covering its date (409),
+  so worked time never silently counts as overtime; open days are left out of the flex balance and summary
   totals until clocked out; only archived jobs can be deleted, and deleting cascades to all their
   data.
 - Backend tests are deferred by decision; do not add backend test infrastructure unless asked.
@@ -132,4 +134,6 @@ Before considering work done: fmt, clippy (no warnings) and build must pass.
 - Learning project: guide the user and provide code to type; do not edit files in the repo
   unless asked. Verify proposed code in a scratch copy (build, lint, run) before presenting it.
   The user commits and pushes; review each pushed commit against what was proposed.
-
+- Docs: every change comes with its Markdown docs updated (`README.md`, `docs/time-tracking.md`,
+  `CLAUDE.md`, `web/CLAUDE.md`, whichever apply). Hand them over as complete files ready to
+  download, not as edits to type.
