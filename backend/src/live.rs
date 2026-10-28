@@ -24,6 +24,8 @@ const MAX_CLOCK_SKEW: Duration = Duration::minutes(1);
 pub struct ClockInRequest {
     /// The local calendar date, as the client sees it
     work_date: Date,
+    /// The schedule the day is worked on; its expected values become the day's snapshot
+    schedule_id: i64,
     #[serde(default, with = "time::serde::rfc3339::option")]
     at: Option<OffsetDateTime>,
 }
@@ -53,14 +55,11 @@ pub enum LiveAction {
 }
 
 /// `today` is the open day, or else the day registered on the client's date.
-/// `schedule_covers_date`: clock-in needs a schedule valid on that date.
+/// `has_schedule`: clock-in needs a schedule to register the day against.
 /// Expects an active job: archived jobs allow no action.
-pub fn available_actions(
-    today: Option<&DayResponse>,
-    schedule_covers_date: bool,
-) -> Vec<LiveAction> {
+pub fn available_actions(today: Option<&DayResponse>, has_schedule: bool) -> Vec<LiveAction> {
     match today {
-        None if schedule_covers_date => vec![LiveAction::ClockIn],
+        None if has_schedule => vec![LiveAction::ClockIn],
         None => Vec::new(),
         Some(day) if !day.is_open() => Vec::new(),
         // Clocking out also ends the running pause
@@ -123,7 +122,7 @@ async fn clock_in(
         });
     };
 
-    days::take_snapshot(&mut tx, day_id, request.work_date).await?;
+    days::take_snapshot(&mut tx, day_id, request.schedule_id, request.work_date).await?;
     let day = load(&mut tx, job_id, request.work_date, user.id).await?;
     tx.commit().await?;
 

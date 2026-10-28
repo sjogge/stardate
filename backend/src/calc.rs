@@ -34,6 +34,29 @@ pub struct Expected {
     pub breaks_paid: bool,
 }
 
+const MINUTES_PER_DAY: i64 = 24 * 60;
+
+/// Length of a planned shift given as minutes after midnight; an end before the start is on
+/// the next day (22:00 to 07:00 is 9 hours). Equal times are rejected before this is called.
+pub fn shift_minutes(start_minute: i64, end_minute: i64) -> i64 {
+    (end_minute - start_minute).rem_euclid(MINUTES_PER_DAY)
+}
+
+/// Expected work of a planned shift: its length minus the pauses that are not paid, the same
+/// way `day_totals` counts a day worked exactly as planned.
+pub fn planned_work_minutes(
+    start_minute: i64,
+    end_minute: i64,
+    lunch_minutes: i64,
+    break_minutes: i64,
+    lunch_paid: bool,
+    breaks_paid: bool,
+) -> i64 {
+    let unpaid_lunch = if lunch_paid { 0 } else { lunch_minutes };
+    let unpaid_breaks = if breaks_paid { 0 } else { break_minutes };
+    shift_minutes(start_minute, end_minute) - unpaid_lunch - unpaid_breaks
+}
+
 /// A work day has times and pauses; a flex day has neither, so the type cannot
 /// represent a flex day with times.
 pub enum Day<'a> {

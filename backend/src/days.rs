@@ -268,11 +268,11 @@ pub struct DayRequest {
     #[serde(default)]
     pauses: Vec<PauseRequest>,
     note: Option<String>,
-    /// Overrides individual snapshot values
+    /// The schedule to take the expected values from: required for a new day; on an existing
+    /// day it re-takes the snapshot (another schedule, or the same one after editing it)
+    schedule_id: Option<i64>,
+    /// Overrides individual snapshot values, after the snapshot is taken
     expected: Option<ExpectedOverride>,
-    /// Re-takes the snapshot from the schedule valid on the work date
-    #[serde(default)]
-    refresh_expected: bool,
 }
 
 #[derive(Deserialize)]
@@ -305,7 +305,7 @@ struct ValidDay {
     pauses: Vec<ValidPause>,
     note: Option<String>,
     expected: ExpectedOverride,
-    refresh_expected: bool,
+    schedule_id: Option<i64>,
 }
 
 struct ValidPause {
@@ -328,9 +328,6 @@ pub(crate) fn invalid(message: &str) -> AppError {
 
 impl DayRequest {
     fn validate(self, now: OffsetDateTime) -> Result<ValidDay, AppError> {
-        if self.expected.is_some() && self.refresh_expected {
-            return Err(invalid("send either expected or refreshExpected, not both"));
-        }
         let expected = self.expected.unwrap_or_default();
         for minutes in [
             expected.work_minutes,
@@ -390,7 +387,7 @@ impl DayRequest {
             pauses,
             note,
             expected,
-            refresh_expected: self.refresh_expected,
+            schedule_id: self.schedule_id,
         })
     }
 }
@@ -605,7 +602,7 @@ async fn get_day(
 }
 
 /// Creates the day (`If-None-Match: *`) or replaces it (`If-Match`). The schedule
-/// snapshot is taken on create and on `refreshExpected`; otherwise it is kept.
+/// snapshot is taken on create and whenever `scheduleId` is sent; otherwise it is kept.
 async fn put_day(
     State(pool): State<SqlitePool>,
     user: CurrentUser,
@@ -614,6 +611,9 @@ async fn put_day(
     AppJson(request): AppJson<DayRequest>,
 ) -> Result<(StatusCode, Tagged<DayResponse>), AppError> {
     let day = request.validate(now())?;
+    if matches!(precondition, WritePrecondition::CreateOnly) && day.schedule_id.is_none() {
+        return Err(invalid("scheduleId is required for a new day"));
+    }
 
     let mut tx = db::begin_write(&pool).await?;
 
@@ -647,7 +647,10 @@ async fn put_day(
                 jobs::ensure_owned(&pool, job_id, user.id).await?;
                 return Err(AppError::PreconditionFailed);
             };
-            take_snapshot(&mut tx, day_id, work_date).await?;
+            // Always set: a new day without a schedule was rejected above
+            if let Some(schedule_id) = day.schedule_id {
+                take_snapshot(&mut tx, day_id, schedule_id, work_date).await?;
+            }
             (day_id, StatusCode::CREATED)
         }
         WritePrecondition::Replace(version) => {
@@ -673,8 +676,8 @@ async fn put_day(
                 tx.rollback().await?;
                 return Err(not_found_or_modified(&pool, job_id, work_date, user.id).await);
             };
-            if day.refresh_expected {
-                take_snapshot(&mut tx, day_id, work_date).await?;
+            if let Some(schedule_id) = day.schedule_id {
+                take_snapshot(&mut tx, day_id, schedule_id, work_date).await?;
             }
             (day_id, StatusCode::OK)
         }
@@ -723,53 +726,80 @@ async fn delete_day(
 
 // ---------- Helpers ----------
 
-/// Copies the expected values of the schedule valid on `work_date` into the day.
-/// No row for that weekday means everything expected is 0 (e.g. a Saturday). No schedule
-/// at all is a 409: every minute would silently count as overtime.
+/// Copies the expected values of `schedule_id` for the weekday of `work_date` into the day.
+/// No row for that weekday means everything expected is 0 (e.g. a Saturday). A schedule of
+/// another job is a 400; the caller's transaction rolls back when it is dropped with it.
 pub(crate) async fn take_snapshot(
     tx: &mut SqliteConnection,
     day_id: i64,
+    schedule_id: i64,
     work_date: Date,
 ) -> Result<(), AppError> {
     let weekday = i64::from(work_date.weekday().number_from_monday());
 
-    let schedule_id = sqlx::query_scalar::<_, Option<i64>>(
-        "UPDATE work_days SET schedule_id = ( \
-             SELECT id FROM schedules \
-             WHERE job_id = work_days.job_id AND valid_from <= work_days.work_date \
-             ORDER BY valid_from DESC LIMIT 1) \
-         WHERE id = ? RETURNING schedule_id",
+    let planned = sqlx::query_as::<_, PlannedRow>(
+        "SELECT s.lunch_paid, s.breaks_paid, d.start_minute, d.end_minute, \
+         d.lunch_minutes, d.break_minutes \
+         FROM schedules s JOIN work_days w ON w.job_id = s.job_id \
+         LEFT JOIN schedule_days d ON d.schedule_id = s.id AND d.weekday = ? \
+         WHERE s.id = ? AND w.id = ?",
     )
+    .bind(weekday)
+    .bind(schedule_id)
     .bind(day_id)
-    .fetch_one(&mut *tx)
-    .await?;
-    // The caller's transaction rolls back when it is dropped with this error
-    if schedule_id.is_none() {
-        return Err(AppError::Conflict(format!(
-            "no schedule covers {work_date}; add one that starts on or before that date"
-        )));
-    }
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| invalid("scheduleId must be a schedule of the same job"))?;
+
+    let (work, lunch, breaks) = match (
+        planned.start_minute,
+        planned.end_minute,
+        planned.lunch_minutes,
+        planned.break_minutes,
+    ) {
+        (Some(start), Some(end), Some(lunch), Some(breaks)) => (
+            calc::planned_work_minutes(
+                start,
+                end,
+                lunch,
+                breaks,
+                planned.lunch_paid,
+                planned.breaks_paid,
+            ),
+            lunch,
+            breaks,
+        ),
+        _ => (0, 0, 0),
+    };
 
     sqlx::query(
-        "UPDATE work_days SET \
-         expected_work_minutes = COALESCE((SELECT work_minutes FROM schedule_days \
-             WHERE schedule_id = work_days.schedule_id AND weekday = ?), 0), \
-         expected_lunch_minutes = COALESCE((SELECT lunch_minutes FROM schedule_days \
-             WHERE schedule_id = work_days.schedule_id AND weekday = ?), 0), \
-         expected_break_minutes = COALESCE((SELECT break_minutes FROM schedule_days \
-             WHERE schedule_id = work_days.schedule_id AND weekday = ?), 0), \
-         lunch_paid = COALESCE((SELECT lunch_paid FROM schedules WHERE id = work_days.schedule_id), 0), \
-         breaks_paid = COALESCE((SELECT breaks_paid FROM schedules WHERE id = work_days.schedule_id), 0) \
+        "UPDATE work_days SET schedule_id = ?, expected_work_minutes = ?, \
+         expected_lunch_minutes = ?, expected_break_minutes = ?, lunch_paid = ?, breaks_paid = ? \
          WHERE id = ?",
     )
-    .bind(weekday)
-    .bind(weekday)
-    .bind(weekday)
+    .bind(schedule_id)
+    .bind(work)
+    .bind(lunch)
+    .bind(breaks)
+    .bind(planned.lunch_paid)
+    .bind(planned.breaks_paid)
     .bind(day_id)
     .execute(&mut *tx)
     .await?;
 
     Ok(())
+}
+
+/// A schedule's paid flags and the planned shift for one weekday; the shift columns are NULL
+/// when the schedule has no row for that weekday.
+#[derive(FromRow)]
+struct PlannedRow {
+    lunch_paid: bool,
+    breaks_paid: bool,
+    start_minute: Option<i64>,
+    end_minute: Option<i64>,
+    lunch_minutes: Option<i64>,
+    break_minutes: Option<i64>,
 }
 
 /// Overwrites only the snapshot values the request names; NULL keeps the current one.
