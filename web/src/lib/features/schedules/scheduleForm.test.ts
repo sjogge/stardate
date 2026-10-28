@@ -1,16 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import type { Schedule } from '$lib/api/types';
 import { formatWeekday } from '$lib/format';
-import { copyMondayToWeekdays, draftFrom, toRequest } from './scheduleForm';
+import { copyMondayToWeekdays, draftFrom, duplicateDraft, toRequest } from './scheduleForm';
 
-const schedule: Schedule = {
+const nights: Schedule = {
 	id: 3,
-	validFrom: '2026-01-01',
+	name: 'Nights',
 	lunchPaid: false,
 	breaksPaid: true,
+	nextScheduleId: 1,
 	days: [
-		{ weekday: 1, workMinutes: 480, lunchMinutes: 60, breakMinutes: 30 },
-		{ weekday: 5, workMinutes: 300, lunchMinutes: 0, breakMinutes: 15 }
+		{
+			weekday: 1,
+			start: '22:00',
+			end: '07:00',
+			lunchMinutes: 30,
+			breakMinutes: 30,
+			workMinutes: 510
+		},
+		{
+			weekday: 5,
+			start: '22:00',
+			end: '06:00',
+			lunchMinutes: 0,
+			breakMinutes: 15,
+			workMinutes: 480
+		}
 	],
 	version: 2,
 	createdAt: '2026-01-01T08:00:00Z',
@@ -18,62 +33,70 @@ const schedule: Schedule = {
 };
 
 describe('scheduleForm', () => {
-	it('fills the form from a schedule, with empty days where none is scheduled', () => {
-		const draft = draftFrom(schedule, '2026-11-01');
+	it('fills the form from a schedule, with empty days where none is planned', () => {
+		const draft = draftFrom(nights);
 
-		expect(draft.validFrom).toBe('2026-11-01');
-		expect(draft.lunchPaid).toBe(false);
-		expect(draft.days[0]).toEqual({ work: '8:00', lunch: '1:00', breaks: '0:30' });
-		expect(draft.days[1]).toEqual({ work: '', lunch: '', breaks: '' });
+		expect(draft).toMatchObject({ name: 'Nights', lunchPaid: false, nextScheduleId: 1 });
+		expect(draft.days[0]).toEqual({ start: '22:00', end: '07:00', lunch: '0:30', breaks: '0:30' });
+		expect(draft.days[1]).toEqual({ start: '', end: '', lunch: '', breaks: '' });
 	});
 
-	it('leaves paid lunch and breaks unchosen for a first schedule', () => {
-		const draft = draftFrom(undefined, '2026-11-01');
-
-		expect(draft.lunchPaid).toBeUndefined();
-		expect(toRequest(draft)).toEqual({ error: 'Choose whether lunch is paid.' });
-	});
-
-	it('round-trips a schedule into the same request', () => {
-		const result = toRequest(draftFrom(schedule, schedule.validFrom));
-
-		expect(result).toEqual({
+	it('round-trips a schedule into the same request, without the derived work', () => {
+		expect(toRequest(draftFrom(nights))).toEqual({
 			request: {
-				validFrom: '2026-01-01',
+				name: 'Nights',
 				lunchPaid: false,
 				breaksPaid: true,
-				days: schedule.days
+				nextScheduleId: 1,
+				days: [
+					{ weekday: 1, start: '22:00', end: '07:00', lunchMinutes: 30, breakMinutes: 30 },
+					{ weekday: 5, start: '22:00', end: '06:00', lunchMinutes: 0, breakMinutes: 15 }
+				]
 			}
 		});
 	});
 
+	it('duplicates a schedule under a new name and without its rotation link', () => {
+		const draft = duplicateDraft(nights);
+
+		expect(draft.name).toBe('Nights (copy)');
+		expect(draft.nextScheduleId).toBeNull();
+		expect(draft.days[0].start).toBe('22:00');
+	});
+
+	it('asks for a name and the paid choices of a new schedule', () => {
+		const draft = draftFrom(undefined);
+		expect(toRequest(draft)).toEqual({ error: 'Give the schedule a name, e.g. Daytime.' });
+
+		draft.name = 'Daytime';
+		expect(toRequest(draft)).toEqual({ error: 'Choose whether lunch is paid.' });
+	});
+
 	it('copies Monday to Tuesday to Friday only', () => {
-		const draft = draftFrom(schedule, '2026-11-01');
+		const draft = draftFrom(nights);
 
 		copyMondayToWeekdays(draft);
 
 		expect(draft.days.slice(1, 5)).toEqual(
-			Array(4).fill({ work: '8:00', lunch: '1:00', breaks: '0:30' })
+			Array(4).fill({ start: '22:00', end: '07:00', lunch: '0:30', breaks: '0:30' })
 		);
-		expect(draft.days[5]).toEqual({ work: '', lunch: '', breaks: '' });
+		expect(draft.days[5]).toEqual({ start: '', end: '', lunch: '', breaks: '' });
 	});
 
-	it('rejects a weekday whose work, lunch and breaks exceed a day', () => {
-		const draft = draftFrom(schedule, '2026-11-01');
-		draft.days[0].lunch = '17:00';
-
+	it('names the weekday of a shift it cannot send', () => {
+		const draft = draftFrom(nights);
+		draft.days[2].start = '09:00';
 		expect(toRequest(draft)).toEqual({
-			error: `${formatWeekday(1)}: work, lunch and breaks add up to more than 24 hours.`
+			error: `${formatWeekday(3)}: enter both start and end, or clear the day.`
 		});
-	});
 
-	it('names the weekday and field of a duration it cannot read', () => {
-		const draft = draftFrom(schedule, '2026-11-01');
+		draft.days[2].end = '09:00';
+		expect(toRequest(draft)).toEqual({ error: `${formatWeekday(3)}: start and end must differ.` });
+
+		draft.days[2].end = '17:00';
 		draft.days[2].lunch = '1h';
-
-		const result = toRequest(draft);
-
-		expect(result).toHaveProperty('error');
-		expect('error' in result && result.error).toMatch(/lunch: use hours and minutes/);
+		expect(toRequest(draft)).toEqual({
+			error: `${formatWeekday(3)}: enter lunch and breaks in hours and minutes, e.g. 0:30.`
+		});
 	});
 });

@@ -1,95 +1,109 @@
-import type { Schedule, ScheduleDay } from '$lib/api/types';
+import type { Schedule } from '$lib/api/types';
 import { formatDuration, formatWeekday, parseDuration } from '$lib/format';
 
 export const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
 
-const MINUTES_PER_DAY = 24 * 60;
-
-/** What the form holds per weekday: durations as typed, e.g. `8:00` */
-export interface DayTimes {
-	work: string;
+/** What the form holds per weekday: clock times from time inputs, pauses as typed lengths */
+export interface ShiftDraft {
+	/** `HH:MM`, or empty for a day without work */
+	start: string;
+	end: string;
+	/** e.g. `1:00` */
 	lunch: string;
 	breaks: string;
 }
 
 export interface ScheduleDraft {
-	validFrom: string;
+	name: string;
 	/** Undefined until chosen: paid or unpaid must be a deliberate choice (no default) */
 	lunchPaid: boolean | undefined;
 	breaksPaid: boolean | undefined;
+	/** The schedule of the following week; null repeats this one */
+	nextScheduleId: number | null;
 	/** Index 0 is Monday */
-	days: DayTimes[];
+	days: ShiftDraft[];
+}
+
+export interface ScheduleDayRequest {
+	weekday: number;
+	start: string;
+	end: string;
+	lunchMinutes: number;
+	breakMinutes: number;
 }
 
 export interface ScheduleRequest {
-	validFrom: string;
+	name: string;
 	lunchPaid: boolean;
 	breaksPaid: boolean;
-	days: ScheduleDay[];
+	nextScheduleId: number | null;
+	days: ScheduleDayRequest[];
 }
 
-const DAY_FIELDS = [
-	['work', 'workMinutes', 'work'],
-	['lunch', 'lunchMinutes', 'lunch'],
-	['breaks', 'breakMinutes', 'break']
-] as const;
+const EMPTY_SHIFT: ShiftDraft = { start: '', end: '', lunch: '', breaks: '' };
 
-/** A form filled from `schedule` (or empty), applying from `validFrom` */
-export function draftFrom(schedule: Schedule | undefined, validFrom: string): ScheduleDraft {
+/** A form filled from `schedule`, or an empty one */
+export function draftFrom(schedule: Schedule | undefined): ScheduleDraft {
 	return {
-		validFrom,
+		name: schedule?.name ?? '',
 		lunchPaid: schedule?.lunchPaid,
 		breaksPaid: schedule?.breaksPaid,
+		nextScheduleId: schedule?.nextScheduleId ?? null,
 		days: WEEKDAYS.map((weekday) => {
 			const day = schedule?.days.find((scheduled) => scheduled.weekday === weekday);
+			if (!day) return { ...EMPTY_SHIFT };
 			return {
-				work: day ? formatDuration(day.workMinutes) : '',
-				lunch: day ? formatDuration(day.lunchMinutes) : '',
-				breaks: day ? formatDuration(day.breakMinutes) : ''
+				start: day.start,
+				end: day.end,
+				lunch: formatDuration(day.lunchMinutes),
+				breaks: formatDuration(day.breakMinutes)
 			};
 		})
 	};
 }
 
-/** Copies Monday's times to Tuesday to Friday, the usual working week */
+/** A new schedule with the same shifts, e.g. as the starting point for the next rotation week */
+export function duplicateDraft(schedule: Schedule): ScheduleDraft {
+	return { ...draftFrom(schedule), name: `${schedule.name} (copy)`, nextScheduleId: null };
+}
+
+/** Copies Monday's shift to Tuesday to Friday, the usual working week */
 export function copyMondayToWeekdays(draft: ScheduleDraft): void {
 	const [monday] = draft.days;
 	for (let index = 1; index <= 4; index++) draft.days[index] = { ...monday };
 }
 
 /**
- * The request body, or the first problem a person can fix in the form. A weekday with all
- * fields empty is left out: no work is expected that day.
+ * The request body, or the first problem a person can fix in the form; the backend checks the
+ * rest (e.g. that lunch and breaks fit in the shift). A weekday with all fields empty is left
+ * out: no work is expected that day.
  */
 export function toRequest(draft: ScheduleDraft): { request: ScheduleRequest } | { error: string } {
-	if (draft.validFrom === '') return { error: 'Choose the date the schedule applies from.' };
+	const name = draft.name.trim();
+	if (name === '') return { error: 'Give the schedule a name, e.g. Daytime.' };
 	if (draft.lunchPaid === undefined) return { error: 'Choose whether lunch is paid.' };
 	if (draft.breaksPaid === undefined) return { error: 'Choose whether breaks are paid.' };
 
-	const days: ScheduleDay[] = [];
-	for (const [index, times] of draft.days.entries()) {
-		if (Object.values(times).every((text) => text.trim() === '')) continue;
+	const days: ScheduleDayRequest[] = [];
+	for (const [index, shift] of draft.days.entries()) {
+		if (Object.values(shift).every((text) => text.trim() === '')) continue;
 
 		const weekday = index + 1;
-		const day: ScheduleDay = { weekday, workMinutes: 0, lunchMinutes: 0, breakMinutes: 0 };
-		for (const [field, key, name] of DAY_FIELDS) {
-			const minutes = parseDuration(times[field]);
-			if (minutes === undefined) {
-				return {
-					error: `${formatWeekday(weekday)} ${name}: use hours and minutes, e.g. 8:00 or 0:45.`
-				};
-			}
-			day[key] = minutes;
+		const day = formatWeekday(weekday);
+		if (shift.start === '' || shift.end === '') {
+			return { error: `${day}: enter both start and end, or clear the day.` };
 		}
-		// The backend checks this too; here it can name the weekday
-		if (day.workMinutes + day.lunchMinutes + day.breakMinutes > MINUTES_PER_DAY) {
-			return {
-				error: `${formatWeekday(weekday)}: work, lunch and breaks add up to more than 24 hours.`
-			};
+		if (shift.start === shift.end) {
+			return { error: `${day}: start and end must differ.` };
 		}
-		days.push(day);
+		const lunchMinutes = parseDuration(shift.lunch);
+		const breakMinutes = parseDuration(shift.breaks);
+		if (lunchMinutes === undefined || breakMinutes === undefined) {
+			return { error: `${day}: enter lunch and breaks in hours and minutes, e.g. 0:30.` };
+		}
+		days.push({ weekday, start: shift.start, end: shift.end, lunchMinutes, breakMinutes });
 	}
 
-	const { validFrom, lunchPaid, breaksPaid } = draft;
-	return { request: { validFrom, lunchPaid, breaksPaid, days } };
+	const { lunchPaid, breaksPaid, nextScheduleId } = draft;
+	return { request: { name, lunchPaid, breaksPaid, nextScheduleId, days } };
 }

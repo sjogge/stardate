@@ -11,20 +11,28 @@ export interface Job {
 	updatedAt: string;
 }
 
+/** One weekday of a schedule: a planned shift as local clock times */
 export interface ScheduleDay {
 	/** ISO 8601 weekday: 1 = Monday, 7 = Sunday */
 	weekday: number;
-	workMinutes: number;
+	/** `HH:MM` */
+	start: string;
+	/** `HH:MM`; before `start` means the next day (a night shift) */
+	end: string;
 	lunchMinutes: number;
 	breakMinutes: number;
+	/** Derived by the backend: the shift minus its unpaid pauses */
+	workMinutes: number;
 }
 
-/** One version of a job's schedule: it applies from `validFrom` until the next version */
+/** A named week of planned shifts; every day is registered against one */
 export interface Schedule {
 	id: number;
-	validFrom: string;
+	name: string;
 	lunchPaid: boolean;
 	breaksPaid: boolean;
+	/** The schedule of the following week, if schedules rotate */
+	nextScheduleId: number | null;
 	/** Sorted by weekday; a missing weekday means no expected work that day */
 	days: ScheduleDay[];
 	version: number;

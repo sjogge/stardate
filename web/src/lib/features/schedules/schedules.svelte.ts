@@ -3,11 +3,11 @@ import type { Job, Schedule } from '$lib/api/types';
 import { showSuccess } from '$lib/toast';
 import type { ScheduleRequest } from './scheduleForm';
 
-/** State of one job's schedule page: the job and its schedule versions. */
+/** State of one job's schedule page: the job and its named week schedules. */
 export class Schedules {
 	readonly jobId: number;
 	job = $state<Job>();
-	/** Oldest first, as the API returns them */
+	/** Sorted by name, as the API returns them */
 	schedules = $state<Schedule[]>([]);
 	/** True until the first load has finished */
 	loading = $state(true);
@@ -19,13 +19,8 @@ export class Schedules {
 		this.jobId = jobId;
 	}
 
-	/** The most recent version first: that is the one people change */
-	get newestFirst(): Schedule[] {
-		return this.schedules.toReversed();
-	}
-
-	get latest(): Schedule | undefined {
-		return this.schedules.at(-1);
+	nameOf(scheduleId: number | null): string | undefined {
+		return this.schedules.find((schedule) => schedule.id === scheduleId)?.name;
 	}
 
 	async load(): Promise<void> {
@@ -74,7 +69,7 @@ export class Schedules {
 			showSuccess(successMessage);
 			return true;
 		} catch {
-			// Already toasted; e.g. a second schedule on the same date (409) or a stale version (412)
+			// Already toasted; e.g. a second schedule with the same name (409) or a stale version (412)
 			return false;
 		} finally {
 			await this.load();

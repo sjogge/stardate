@@ -40,8 +40,9 @@
 		</div>
 	{:else}
 		<p class="text-sm opacity-75">
-			A schedule says how much work, lunch and break is expected per weekday, from its date until
-			the next schedule. To change it from a certain date, add a new schedule from that date.
+			A schedule is a week of planned shifts. You pick one for every day you register, so add one
+			per kind of week (e.g. Daytime and Nights), and link them with "Next week" if they rotate.
+			Changing a schedule never changes days already registered.
 		</p>
 		<button
 			type="button"
@@ -54,13 +55,16 @@
 		</button>
 
 		{#if schedules.schedules.length === 0}
-			<p class="card preset-tonal p-4">
-				No schedule yet: no work is expected, so all worked time counts as overtime.
-			</p>
+			<p class="card preset-tonal p-4">No schedule yet: add one before registering days.</p>
 		{:else}
 			<ul class="space-y-3">
-				{#each schedules.newestFirst as schedule (schedule.id)}
-					<ScheduleCard {schedule} {schedules} onedit={(selected) => dialog.open(selected)} />
+				{#each schedules.schedules as schedule (schedule.id)}
+					<ScheduleCard
+						{schedule}
+						{schedules}
+						onedit={(selected) => dialog.open(selected)}
+						onduplicate={(original) => dialog.open(undefined, original)}
+					/>
 				{/each}
 			</ul>
 		{/if}

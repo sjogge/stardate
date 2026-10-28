@@ -1,14 +1,18 @@
 <script lang="ts">
 	import type { Schedule } from '$lib/api/types';
-	import { formatWeekday, todayIsoDate } from '$lib/format';
+	import { formatWeekday } from '$lib/format';
 	import {
 		WEEKDAYS,
 		copyMondayToWeekdays,
 		draftFrom,
+		duplicateDraft,
 		toRequest,
 		type ScheduleDraft
 	} from './scheduleForm';
 	import type { Schedules } from './schedules.svelte';
+
+	// Mirrors the backend's limit (schedules.rs) so the input stops there; the backend still checks
+	const MAX_NAME_LENGTH = 100;
 
 	let { schedules }: { schedules: Schedules } = $props();
 
@@ -16,17 +20,16 @@
 	// Undefined once the component is gone, e.g. after leaving the page while a save is in flight
 	let dialog: HTMLDialogElement | undefined;
 	let editing = $state<Schedule>();
-	let draft = $state<ScheduleDraft>(draftFrom(undefined, ''));
+	let draft = $state<ScheduleDraft>(draftFrom(undefined));
 	let error = $state<string>();
 
-	/** Edits `schedule`, or starts a new version as a copy of the latest one */
-	export function open(schedule?: Schedule): void {
+	/** The other schedules this one can rotate into; "the same schedule again" covers itself */
+	const nextOptions = $derived(schedules.schedules.filter((other) => other.id !== editing?.id));
+
+	/** Edits `schedule`, or starts a new one: empty, or as a copy of `copyOf` */
+	export function open(schedule?: Schedule, copyOf?: Schedule): void {
 		editing = schedule;
-		// A first schedule gets no date: days before it cannot be registered, so it is a
-		// deliberate choice (usually the first day you track), not silently today
-		draft = schedule
-			? draftFrom(schedule, schedule.validFrom)
-			: draftFrom(schedules.latest, schedules.latest ? todayIsoDate() : '');
+		draft = schedule ? draftFrom(schedule) : copyOf ? duplicateDraft(copyOf) : draftFrom(undefined);
 		error = undefined;
 		dialog?.showModal();
 	}
@@ -70,81 +73,106 @@
 >
 	<!-- novalidate: toRequest explains what is missing in one alert instead of browser bubbles -->
 	<form
-		class="flex min-h-0 w-full flex-col gap-4 overflow-y-auto md:w-lg"
+		class="flex min-h-0 w-full flex-col gap-4 overflow-y-auto md:w-2xl"
 		novalidate
 		onsubmit={submit}
 	>
-		<h2 id="{id}-title" class="h4">{editing ? 'Edit schedule' : 'New schedule'}</h2>
+		<h2 id="{id}-title" class="h4">{editing ? `Edit ${editing.name}` : 'New schedule'}</h2>
 
 		<label class="label">
-			<span class="label-text">Applies to days from</span>
-			<input type="date" class="input" required bind:value={draft.validFrom} />
+			<span class="label-text">Name</span>
+			<input
+				class="input"
+				placeholder="e.g. Daytime, Nights, Week 2"
+				required
+				maxlength={MAX_NAME_LENGTH}
+				bind:value={draft.name}
+			/>
 		</label>
-		{#if !editing && !schedules.latest}
-			<p class="text-sm">
-				For a first schedule, choose the first day you track: days before it cannot be registered.
-			</p>
-		{/if}
-		<p class="text-sm opacity-75">
-			It applies until the next schedule starts. Days already registered keep the times they were
-			registered with, so changing a schedule never changes your history.
-		</p>
 
 		{@render paidChoice('Lunch', draft.lunchPaid, (paid) => (draft.lunchPaid = paid))}
 		{@render paidChoice('Breaks', draft.breaksPaid, (paid) => (draft.breaksPaid = paid))}
 
-		<p id="{id}-hours" class="text-sm opacity-75">
-			Hours per weekday, e.g. 8:00. Leave a day empty when no work is expected.
-		</p>
-		<table class="table" aria-label="Hours per weekday" aria-describedby="{id}-hours">
-			<thead>
-				<tr>
-					<th scope="col">Day</th>
-					<th scope="col">Work</th>
-					<th scope="col">Lunch</th>
-					<th scope="col">Breaks</th>
-				</tr>
-			</thead>
-			<tbody>
-				{#each WEEKDAYS as weekday, index (weekday)}
-					{@const name = formatWeekday(weekday)}
-					<tr>
-						<th scope="row">{name}</th>
-						<td>
-							<input
-								class="input"
-								placeholder="0:00"
-								aria-label="{name} work"
-								bind:value={draft.days[index].work}
-							/>
-						</td>
-						<td>
-							<input
-								class="input"
-								placeholder="0:00"
-								aria-label="{name} lunch"
-								bind:value={draft.days[index].lunch}
-							/>
-						</td>
-						<td>
-							<input
-								class="input"
-								placeholder="0:00"
-								aria-label="{name} breaks"
-								bind:value={draft.days[index].breaks}
-							/>
-						</td>
-					</tr>
+		<fieldset class="space-y-3">
+			<legend class="label-text">Shifts</legend>
+			<p class="text-sm opacity-75">
+				Planned start and end per weekday; an end before the start is the next day. Leave a day
+				empty when no work is expected. A shift belongs to the day it starts.
+			</p>
+			{#each WEEKDAYS as weekday, index (weekday)}
+				{@const name = formatWeekday(weekday)}
+				<div
+					class="grid grid-cols-[3rem_1fr_1fr] items-end gap-2 md:grid-cols-[3rem_1fr_1fr_1fr_1fr]"
+				>
+					<span class="pb-2 font-bold">{name}</span>
+					<label class="label">
+						<span class="label-text">Start</span>
+						<input
+							type="time"
+							class="input"
+							aria-label="{name} start"
+							bind:value={draft.days[index].start}
+						/>
+					</label>
+					<label class="label">
+						<span class="label-text">End</span>
+						<input
+							type="time"
+							class="input"
+							aria-label="{name} end"
+							bind:value={draft.days[index].end}
+						/>
+					</label>
+					<!-- Below start and end on phones: four inputs in a row are too narrow there -->
+					<label class="label max-md:col-start-2">
+						<span class="label-text">Lunch</span>
+						<input
+							class="input"
+							placeholder="0:00"
+							aria-label="{name} lunch"
+							bind:value={draft.days[index].lunch}
+						/>
+					</label>
+					<label class="label">
+						<span class="label-text">Breaks</span>
+						<input
+							class="input"
+							placeholder="0:00"
+							aria-label="{name} breaks"
+							bind:value={draft.days[index].breaks}
+						/>
+					</label>
+				</div>
+			{/each}
+			<button
+				type="button"
+				class="btn self-start preset-tonal"
+				onclick={() => copyMondayToWeekdays(draft)}
+			>
+				Copy Monday to Tuesday–Friday
+			</button>
+		</fieldset>
+
+		<label class="label">
+			<span class="label-text">Next week</span>
+			<select
+				class="select"
+				value={draft.nextScheduleId ?? ''}
+				onchange={(event) => {
+					const { value } = event.currentTarget;
+					draft.nextScheduleId = value === '' ? null : Number(value);
+				}}
+			>
+				<option value="">The same schedule again</option>
+				{#each nextOptions as option (option.id)}
+					<option value={option.id}>{option.name}</option>
 				{/each}
-			</tbody>
-		</table>
-		<button
-			type="button"
-			class="btn self-start preset-tonal"
-			onclick={() => copyMondayToWeekdays(draft)}
-		>
-			Copy Monday to Tuesday–Friday
-		</button>
+			</select>
+		</label>
+		<p class="text-sm opacity-75">
+			For rotating shifts: the schedule suggested for the week after a week on this one. You can
+			always pick another when registering a day.
+		</p>
 
 		{#if error}
 			<p role="alert" class="card preset-tonal-error p-3">{error}</p>

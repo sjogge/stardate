@@ -73,6 +73,14 @@ export function formatBalance(minutes: number): string {
 	return minutes > 0 ? `+${formatDuration(minutes)}` : formatDuration(minutes);
 }
 
+/** A local `HH:MM` clock time (e.g. a planned shift) in the device's locale, e.g. `22:00` or `10:00 PM` */
+export function formatClockTime(clock: string, locale?: string): string {
+	const [hours, minutes] = clock.split(':').map(Number);
+	return new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(
+		new Date(2024, 0, 1, hours, minutes)
+	);
+}
+
 /** An RFC 3339 instant as a clock time in the device's locale, e.g. `08:02` or `8:02 AM` */
 export function formatTime(instant: string, locale?: string, timeZone?: string): string {
 	return new Intl.DateTimeFormat(locale, { timeStyle: 'short', timeZone }).format(
