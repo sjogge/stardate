@@ -37,7 +37,7 @@ backend/
     calc.rs                # pure day calculations: worked time, balance, leave-at
     health.rs              # GET /api/health
     jobs.rs                # /api/jobs
-    schedules.rs           # /api/jobs/{job_id}/schedules
+    schedules.rs           # /api/jobs/{job_id}/schedules; schedules::suggested (rotation links)
     days.rs                # /api/jobs/{job_id}/days: register, edit, delete days; snapshot helpers
     live.rs                # /api/jobs/{job_id}/clock-in, clock-out, pauses/start, pauses/end;
                            # available_actions (which of them are valid, for /api/status)
@@ -106,8 +106,9 @@ Before considering work done: fmt, clippy (no warnings) and build must pass.
   above the layer; `/api/health` stays below it to avoid log noise.
 - Keep calculation logic in a pure module (no I/O, no database) so it is easy to test later.
 - Domain decisions to keep consistent (details in the spec): days keep their schedule snapshot, so
-  schedule edits never change history; creating a day needs a schedule covering its date (409),
-  so worked time never silently counts as overtime; open days are left out of the flex balance and summary
+  schedule edits never change history; every day names its schedule (`scheduleId` required on
+  create, schedules are named weeks of planned times, no dated versions), so worked time never
+  silently counts as overtime; the suggested schedule is computed by the backend; open days are left out of the flex balance and summary
   totals until clocked out; only archived jobs can be deleted, and deleting cascades to all their
   data.
 - Backend tests are deferred by decision; do not add backend test infrastructure unless asked.

@@ -3,8 +3,10 @@
 ## Concepts
 
 - **Job**: an employment, workplace or project. A user has one or more jobs.
-- **Schedule**: the expected working pattern of a job from a given date (`valid_from`), with
-  per-weekday minutes and whether lunch and breaks are paid.
+- **Schedule**: one named week of planned shifts for a job (e.g. "Daytime", "Nights"): per weekday a
+  start and end time with lunch and break minutes, and whether lunch and breaks are paid. A job can
+  have several; every day is registered against the one the user picks. Schedules can be linked
+  into a rotation (`next_schedule_id`: the schedule of the following week).
 - **Work day**: one registered calendar day for a job. Either `work` (with start and end) or `flex`
   (a day off taken from the flex balance).
 - **Pause**: lunch, break or other (unpaid absence, e.g. a dentist visit) within a work day.
@@ -15,7 +17,9 @@
 - Instants (start, end, pause times) are stored as `INTEGER` Unix seconds (UTC).
   The API accepts RFC 3339 with any offset, normalizes to UTC and truncates to whole seconds.
   Responses use RFC 3339 in UTC.
-- Calendar dates (`work_date`, `valid_from`) are stored as `TEXT` `YYYY-MM-DD`.
+- Calendar dates (`work_date`, `adjusted_on`) are stored as `TEXT` `YYYY-MM-DD`.
+- A schedule's planned times are local clock times, stored as minutes after midnight and sent as
+  `HH:MM`. They describe a shift, not instants, so they need no time zone.
 - The server is timezone-agnostic. The client sends the local work date when clocking in or
   registering a day, and formats instants in local time for display.
 - Weekdays are derived from the work date (ISO 8601, 1 = Monday). No timezone is needed for that.
@@ -48,27 +52,33 @@ CREATE TABLE jobs (
     UNIQUE (user_id, name)
 ) STRICT;
 
+-- One week of planned shifts. Every day is registered against a schedule the user picks;
+-- `next_schedule_id` links weeks into a rotation (evenings -> daytime -> nights -> evenings).
 CREATE TABLE schedules (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    job_id      INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-    valid_from  TEXT    NOT NULL CHECK (date(valid_from) = valid_from),
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id           INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    name             TEXT    NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
     -- No defaults: paid or unpaid must be a deliberate choice per employment
-    lunch_paid  INTEGER NOT NULL CHECK (lunch_paid IN (0, 1)),
-    breaks_paid INTEGER NOT NULL CHECK (breaks_paid IN (0, 1)),
-    version     INTEGER NOT NULL DEFAULT 1,
-    created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
-    updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
-    UNIQUE (job_id, valid_from)
+    lunch_paid       INTEGER NOT NULL CHECK (lunch_paid IN (0, 1)),
+    breaks_paid      INTEGER NOT NULL CHECK (breaks_paid IN (0, 1)),
+    next_schedule_id INTEGER REFERENCES schedules(id) ON DELETE SET NULL,
+    version          INTEGER NOT NULL DEFAULT 1,
+    created_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+    UNIQUE (job_id, name)
 ) STRICT;
 
--- A missing weekday means no expected work that day
+-- A planned shift as clock times (minutes after midnight); an end before the start is on the
+-- next day. A missing weekday means no expected work that day.
 CREATE TABLE schedule_days (
     schedule_id   INTEGER NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
     weekday       INTEGER NOT NULL CHECK (weekday BETWEEN 1 AND 7),
-    work_minutes  INTEGER NOT NULL CHECK (work_minutes BETWEEN 0 AND 1440),
+    start_minute  INTEGER NOT NULL CHECK (start_minute BETWEEN 0 AND 1439),
+    end_minute    INTEGER NOT NULL CHECK (end_minute BETWEEN 0 AND 1439),
     lunch_minutes INTEGER NOT NULL CHECK (lunch_minutes BETWEEN 0 AND 1440),
     break_minutes INTEGER NOT NULL CHECK (break_minutes BETWEEN 0 AND 1440),
-    PRIMARY KEY (schedule_id, weekday)
+    PRIMARY KEY (schedule_id, weekday),
+    CHECK (start_minute != end_minute)
 ) STRICT;
 
 CREATE TABLE work_days (
@@ -78,7 +88,8 @@ CREATE TABLE work_days (
     kind                   TEXT    NOT NULL DEFAULT 'work' CHECK (kind IN ('work', 'flex')),
     started_at             INTEGER,
     ended_at               INTEGER,
-    -- Snapshot taken at creation so schedule changes never alter history
+    -- The schedule picked for the day, and a snapshot of its expected values taken then,
+    -- so schedule changes never alter history
     schedule_id            INTEGER REFERENCES schedules(id) ON DELETE SET NULL,
     expected_work_minutes  INTEGER NOT NULL CHECK (expected_work_minutes >= 0),
     expected_lunch_minutes INTEGER NOT NULL CHECK (expected_lunch_minutes >= 0),
@@ -139,20 +150,35 @@ so active history cannot be lost by a single request.
 
 ## Rules
 
-### Schedule selection and snapshot
+### Schedules, choice and snapshot
 
-- The schedule for a date is the job's schedule with the latest `valid_from <= work_date`.
-- The weekday row of that schedule gives expected work, lunch and break minutes. If there is no
-  row for that weekday (e.g. a Saturday), all expected values are 0 (all worked time is overtime).
-- **A schedule must cover the date.** Creating a day (also by clock-in) or re-taking its snapshot
-  (`refreshExpected`) on a date before the job's first schedule is a 409: otherwise every minute
-  would silently count as overtime.
+- **Every day names its schedule.** Creating a day (also by clock-in, flex days included) requires
+  `scheduleId`, a schedule of the same job (400 otherwise). A job without schedules cannot register
+  days, so worked time never silently counts as overtime.
+- A weekday row is a planned shift: `start` and `end` (an end before the start is on the next day,
+  so 22:00 to 07:00 is 9 hours), lunch and break minutes. Its expected work is derived:
+  `expected_work = (end - start) - unpaid lunch - unpaid breaks`. A shift belongs to the weekday it
+  starts on.
+- When a day is **created**, the chosen schedule's row for the day's weekday is copied into it
+  (expected work, lunch and break minutes, paid flags): the **snapshot**. No row for that weekday
+  (e.g. a Saturday) means all expected values are 0, so all worked time is overtime.
+- Schedules and their weekday rows may be edited or deleted freely. This never changes existing
+  work days. Sending `scheduleId` again when replacing a day re-takes the snapshot (another
+  schedule, or the same one after editing it).
 - A **bonus day** is work on a day the schedule expects work, but nothing is owed (e.g. a public
   holiday): it is registered with `expected` work, lunch and break minutes set to 0, so all worked
   time counts as plus.
-- When a work day is **created**, these values and the paid flags are copied into the work day.
-- Schedules and their weekday rows may be edited or deleted freely. This never changes existing
-  work days, only days created afterwards.
+
+### Suggested schedule
+
+The schedule a client preselects for a new day on a date is computed by the backend, so every
+device suggests the same:
+
+- Take the job's latest day before the date that has a schedule, and move along `next_schedule_id`
+  once per calendar week (Monday to Monday) between that day and the date. An unlinked schedule
+  repeats. Weeks without registered days (a vacation) still move a rotation on.
+- No earlier day: the job's first schedule (lowest id). No schedules: none.
+- It is only a suggestion: the user may pick any schedule of the job.
 
 ### Worked time for a `work` day
 
@@ -215,7 +241,8 @@ Forgotten days can be registered later.
 ### Validation
 
 - `ended_at > started_at`, and a day is at most 24 hours.
-- A schedule's weekday row has work, lunch and break minutes of at most 24 hours together.
+- A schedule's weekday row: start and end differ, and lunch plus breaks fit in the shift.
+  Schedule names are unique per job; `nextScheduleId` must be a schedule of the same job.
 - Timed pauses lie within the day (`started_at` to `ended_at`, or now if open) and do not overlap.
 - Only one open work day per job and one running pause per day (also enforced by indexes).
 - No clock-in on an archived job (409).
@@ -223,10 +250,11 @@ Forgotten days can be registered later.
 
 ### Editing and deleting days
 
-- Editing a day replaces its times, pauses (as a whole list), note and kind. The snapshot is kept.
+- Editing a day replaces its times, pauses (as a whole list), note and kind. The snapshot is kept,
+  unless the edit sends `scheduleId`: then it is re-taken from that schedule.
 - The edit may override snapshot values via `expected` (any of `workMinutes`, `lunchMinutes`,
-  `breakMinutes`, `lunchPaid`, `breaksPaid`), or re-take the snapshot from the current schedule via
-  `refreshExpected: true`. Sending both is a 400.
+  `breakMinutes`, `lunchPaid`, `breaksPaid`); with `scheduleId`, the overrides apply after the
+  snapshot is re-taken.
 - Moving a day to another date is a delete plus a new registration, since the snapshot depends on
   the date.
 - Deleting a day removes its pauses (cascade) and its effect on the flex balance.
@@ -240,11 +268,12 @@ All routes under `/api`, JSON in `camelCase`, errors as `{"message": "..."}`.
 | GET, POST        | `/jobs`                                      | List / create jobs                                                                                      |
 | GET, PUT, DELETE | `/jobs/{id}`                                 | Get / rename / delete (archived jobs only)                                                              |
 | POST             | `/jobs/{id}/archive`                         | Archive (history kept)                                                                                  |
-| GET, POST        | `/jobs/{id}/schedules`                       | List / create schedule versions (with weekday rows)                                                     |
-| GET, PUT, DELETE | `/jobs/{id}/schedules/{scheduleId}`          | Get / edit / delete a version                                                                           |
+| GET, POST        | `/jobs/{id}/schedules`                       | List / create schedules (with weekday rows)                                                             |
+| GET              | `/jobs/{id}/schedules/suggested?date=`       | `{ scheduleId }`: the schedule to preselect for a new day on `date`                                     |
+| GET, PUT, DELETE | `/jobs/{id}/schedules/{scheduleId}`          | Get / edit / delete a schedule                                                                          |
 | GET              | `/jobs/{id}/days?from=&to=`                  | Days in a date range, with totals                                                                       |
 | GET, PUT, DELETE | `/jobs/{id}/days/{date}`                     | Get / create or replace / delete a day                                                                  |
-| POST             | `/jobs/{id}/clock-in`                        | `{ workDate, at? }` creates the day with snapshot, opens it                                             |
+| POST             | `/jobs/{id}/clock-in`                        | `{ workDate, scheduleId, at? }` creates the day with snapshot, opens it                                 |
 | POST             | `/jobs/{id}/clock-out`                       | `{ at? }` closes the open day                                                                           |
 | POST             | `/jobs/{id}/pauses/start`                    | `{ kind, at? }` on the open day                                                                         |
 | POST             | `/jobs/{id}/pauses/end`                      | `{ at? }` ends the running pause                                                                        |
@@ -261,8 +290,9 @@ Live actions (`clock-in`, `clock-out`, `pauses/start`, `pauses/end`) need no `If
 guarded by the day's state and answer 409 when it does not fit:
 
 - `clock-in`: 409 if the job is archived, if a day is already open ("already clocked in on <date>"),
-  if a day is already registered for `workDate`, or if no schedule covers `workDate`. `workDate` may differ from the UTC date of `at`
-  by at most one day (the client's local date). The day is created with its schedule snapshot.
+  or if a day is already registered for `workDate`. `scheduleId` is required (a schedule of the
+  same job, 400 otherwise). `workDate` may differ from the UTC date of `at` by at most one day (the
+  client's local date). The day is created with the snapshot of that schedule.
 - `clock-out`: 409 if not clocked in. A running pause is ended at the same time. 400 if `at` is not
   after clock-in, the day would exceed 24 hours, or a logged pause lies after `at`.
 - `pauses/start`: 409 if not clocked in or a pause is already running. 400 if `at` is before
@@ -283,20 +313,22 @@ Flex adjustments take `{ adjustedOn, minutes, note? }`; `minutes` is non-zero (p
 negative takes) and at most a year of full days.
 
 `GET /status?date=` returns one entry per active job: `jobId`, `jobName`, `clockedIn`, `runningPause`
-(`kind`, `startedAt`), `availableActions`, `today` and `flexBalanceMinutes`. `today` is the open day,
-or else the day registered on `date` (the client's local date, optional), in the same shape as a day
-response.
+(`kind`, `startedAt`), `availableActions`, `suggestedScheduleId`, `today` and `flexBalanceMinutes`.
+`today` is the open day, or else the day registered on `date` (the client's local date, optional), in
+the same shape as a day response. `suggestedScheduleId` is the suggested schedule for clocking in on
+`date` (see "Suggested schedule"); null when a day is already there, without `date`, or without
+schedules.
 
 `availableActions` lists the live actions that will not answer 409, so clients do not re-derive
 the rules:
 
-| State                                   | `availableActions`           |
-| --------------------------------------- | ---------------------------- |
-| No day on `date`, a schedule covers it  | `["clockIn"]`                |
-| No day on `date`, no schedule covers it | `[]`                         |
-| Clocked in, no pause running            | `["startPause", "clockOut"]` |
-| Clocked in, a pause running             | `["endPause", "clockOut"]`   |
-| Day on `date` closed, or flex day       | `[]`                         |
+| State                                    | `availableActions`           |
+| ---------------------------------------- | ---------------------------- |
+| No day on `date`, the job has a schedule | `["clockIn"]`                |
+| No day on `date`, no schedules           | `[]`                         |
+| Clocked in, no pause running             | `["startPause", "clockOut"]` |
+| Clocked in, a pause running              | `["endPause", "clockOut"]`   |
+| Day on `date` closed, or flex day        | `[]`                         |
 
 `startPause` covers every pause kind. Without `date`, a day already registered today is unknown,
 so `clockIn` may still answer 409.
@@ -309,6 +341,7 @@ If-None-Match: *
 
 {
   "kind": "work",
+  "scheduleId": 1,
   "startedAt": "2026-10-23T08:00:00+02:00",
   "endedAt": "2026-10-23T17:00:00+02:00",
   "pauses": [
@@ -319,16 +352,34 @@ If-None-Match: *
 }
 ```
 
+A schedule (`POST /jobs/{id}/schedules`, or `PUT` with `If-Match` to replace it and its rows):
+
+```json
+{
+  "name": "Nights",
+  "lunchPaid": false,
+  "breaksPaid": true,
+  "nextScheduleId": 1,
+  "days": [
+    { "weekday": 1, "start": "22:00", "end": "07:00", "lunchMinutes": 30, "breakMinutes": 30 }
+  ]
+}
+```
+
+Responses add the derived `workMinutes` per weekday (here 8:30) and `nextScheduleId` may be omitted
+or null. Deleting a schedule keeps the snapshots of its days (their `scheduleId` becomes null) and
+clears links to it.
+
 `PUT /jobs/{id}/days/{date}` details:
 
 - `kind` is `work` (needs `startedAt`; `endedAt` may be omitted for an open day) or `flex` (no times,
   no pauses).
 - Each pause has `kind` (`lunch`, `break`, `other`) and either `startedAt` (plus `endedAt` once
   finished) or `minutes`. Only an open day can have a running pause.
+- `scheduleId` is required on create (400 without it). On replace it is optional: sending it
+  re-takes the snapshot from that schedule.
 - `expected` overrides individual snapshot values (`workMinutes`, `lunchMinutes`, `breakMinutes`,
-  `lunchPaid`, `breaksPaid`) on create or replace. `refreshExpected: true` re-takes the snapshot on
-  replace. Sending both is a 400.
-- Creating a day, or `refreshExpected`, needs a schedule covering the date: 409 otherwise.
+  `lunchPaid`, `breaksPaid`) on create or replace, after any snapshot.
 - Only one open work day per job: a second open day is a 409.
 
 `GET /jobs/{id}/days?from=&to=` takes inclusive dates and covers at most 366 days.
@@ -382,7 +433,7 @@ ones when none were logged. `leaveAt` is set only while the day is open.
 - Multi-statement writes run in a transaction started with `BEGIN IMMEDIATE` (`db::begin_write`),
   never `pool.begin()`. The write lock is held from the start, so reads inside the transaction cannot
   go stale (`SQLITE_BUSY_SNAPSHOT`). Roll back if the first write affects no rows.
-- The schedule snapshot (on create and on `refreshExpected`) is taken inside the day's write
+- The schedule snapshot (on create and when `scheduleId` is sent) is taken inside the day's write
   transaction (`db::begin_write`), so it can never mix values from a half-edited schedule.
 
 ## Suggested implementation order

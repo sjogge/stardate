@@ -177,16 +177,17 @@ UTC; dates are `YYYY-MM-DD`.
 | PUT    | `/api/jobs/{id}`                        | Rename a job (requires `If-Match`)                                                 |
 | DELETE | `/api/jobs/{id}`                        | Delete an archived job and all its data (requires `If-Match`)                      |
 | POST   | `/api/jobs/{id}/archive`                | Archive a job, keeping its history (idempotent)                                    |
-| GET    | `/api/jobs/{id}/schedules`              | List schedule versions, ordered by `validFrom`, with weekday rows                  |
-| POST   | `/api/jobs/{id}/schedules`              | Create a schedule version                                                          |
-| GET    | `/api/jobs/{id}/schedules/{scheduleId}` | Get a schedule version                                                             |
-| PUT    | `/api/jobs/{id}/schedules/{scheduleId}` | Replace a schedule version and its weekday rows (requires `If-Match`)              |
-| DELETE | `/api/jobs/{id}/schedules/{scheduleId}` | Delete a schedule version (requires `If-Match`); existing days keep their snapshot |
+| GET    | `/api/jobs/{id}/schedules`              | List schedules, ordered by name, with weekday rows (planned times)                 |
+| POST   | `/api/jobs/{id}/schedules`              | Create a schedule                                                                  |
+| GET    | `/api/jobs/{id}/schedules/suggested?date=` | The schedule to preselect for a new day on `date`                               |
+| GET    | `/api/jobs/{id}/schedules/{scheduleId}` | Get a schedule                                                                     |
+| PUT    | `/api/jobs/{id}/schedules/{scheduleId}` | Replace a schedule and its weekday rows (requires `If-Match`)                      |
+| DELETE | `/api/jobs/{id}/schedules/{scheduleId}` | Delete a schedule (requires `If-Match`); existing days keep their snapshot         |
 | GET    | `/api/jobs/{id}/days?from=&to=` | Days in an inclusive date range (at most 366 days), with totals |
 | GET    | `/api/jobs/{id}/days/{date}` | One day with its pauses, snapshot and totals |
 | PUT    | `/api/jobs/{id}/days/{date}` | Create (`If-None-Match: *`) or replace (`If-Match`) a day |
 | DELETE | `/api/jobs/{id}/days/{date}` | Delete a day and its pauses (requires `If-Match`) |
-| POST   | `/api/jobs/{id}/clock-in` | `{ "workDate": "...", "at"?: "..." }`: create today's day with its snapshot and open it |
+| POST   | `/api/jobs/{id}/clock-in` | `{ "workDate": "...", "scheduleId": 1, "at"?: "..." }`: create today's day with its snapshot and open it |
 | POST   | `/api/jobs/{id}/clock-out` | `{ "at"?: "..." }`: close the open day, ending a running pause |
 | POST   | `/api/jobs/{id}/pauses/start` | `{ "kind": "lunch" \| "break" \| "other", "at"?: "..." }` on the open day |
 | POST   | `/api/jobs/{id}/pauses/end` | `{ "at"?: "..." }`: end the running pause |
@@ -215,7 +216,7 @@ Errors are returned as JSON `{ "message": "..." }`:
 | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
 | 400    | Validation failed, a CHECK / NOT NULL constraint was violated, malformed JSON, an invalid path value, or a malformed `If-Match` |
 | 404    | Resource not found                                                                                                              |
-| 409    | Unique or foreign key constraint violated, or the state does not allow it (e.g. duplicate job name, deleting a job that is not archived, a day on a date no schedule covers) |
+| 409    | Unique or foreign key constraint violated, or the state does not allow it (e.g. duplicate job or schedule name, deleting a job that is not archived) |
 | 412    | `If-Match` version is out of date: the resource was modified by another request                                                 |
 | 413    | Request body too large                                                                                                          |
 | 415    | `Content-Type: application/json` missing on a request with a JSON body                                                          |
@@ -309,18 +310,25 @@ large button, the others are smaller.
   again. Worked time and leave-at are computed by the server at each load, so there is no client
   clock to drift.
 
-### A schedule must cover every registered day
+### Every day names its schedule
 
-Creating a day, clocking in or re-taking a day's snapshot on a date before the job's first schedule
-answers 409. `GET /status` then offers no `clockIn`, and the Today screen links to the job's
-schedules instead.
+A job has named week schedules ("Daytime", "Nights"), each a planned shift per weekday as clock
+times. Clocking in and creating a day require `scheduleId`; the day copies that schedule's
+expected values (the snapshot). There are no dated schedule versions.
 
-- **Why:** a day with no schedule has nothing expected, so every minute silently counted as
-  overtime, e.g. +9:00 for a normal 9-hour day registered before the schedule's date.
-- A weekday without hours in a covering schedule (a Saturday) is still allowed: it has nothing
-  expected, so its work is plus time. A **bonus day** does the same for a weekday with hours, such
-  as a public holiday (see the day editor).
-- Someone without a set schedule (e.g. a contractor) adds one schedule with no hours on any day;
+- **Why:** dated versions could not express shift workers' weeks, and a day registered before
+  the first version had nothing expected, so every minute silently counted as overtime. Naming the
+  schedule per day covers temporary and rotating schedules and leaves no day without one.
+- **Planned times instead of durations:** a row is `08:00`–`17:00` or `22:00`–`07:00` plus lunch
+  and break minutes; the backend derives the expected work (`calc::planned_work_minutes`), so the
+  two cannot disagree. A shift belongs to the weekday it starts on.
+- **Rotations are links,** not multi-week schedules: each week is its own schedule, and
+  `next_schedule_id` says which follows. The backend suggests a schedule for a new day from the
+  latest earlier day and the calendar weeks since (`schedules::suggested`), so every device
+  preselects the same and a vacation does not shift the rotation. The user can always pick another.
+- A weekday without a row (a Saturday) has nothing expected, so its work is plus time. A **bonus
+  day** does the same for a weekday with a shift, such as a public holiday (see the day editor).
+- Someone without a set schedule (e.g. a contractor) adds one schedule with no rows;
   "Hours-only jobs" on the roadmap will make that a choice when creating the job.
 
 ### The day editor
@@ -490,10 +498,6 @@ Ideas that are not needed now but are worth knowing about.
   the day exists. A 409 "a day is already registered on this date" would explain it; the form only
   catches dates in the month it shows.
 
-- **Expected times per day in the day editor.** The API can override a day's snapshot (`expected`)
-  or re-take it from the current schedule (`refreshExpected`), e.g. after fixing a schedule that was
-  wrong when the day was registered. The form does not offer either yet.
-
 - **A setting for default pauses.** A day without a logged lunch or break counts the expected one
   from the schedule. A user setting could choose instead that an unlogged pause counts as none.
   It changes worked time and the flex balance, so it belongs in the backend (per user, applied in
@@ -501,7 +505,7 @@ Ideas that are not needed now but are worth knowing about.
 
 ## Roadmap
 
-- [x] Data model: jobs, versioned schedules, work days, pauses, flex adjustments (UTC instants)
+- [x] Data model: jobs, schedules, work days, pauses, flex adjustments (UTC instants)
 - [x] Replace the `pizza` placeholder and its migration
 - [x] Jobs API with optimistic concurrency
 - [x] JSON error bodies for rejected requests (bad JSON, bad path values)
@@ -521,10 +525,16 @@ Ideas that are not needed now but are worth knowing about.
     - [x] Jobs: create, rename, archive, delete
     - [x] Schedules per job
     - [x] Flex adjustments
+    - [ ] Schedule rework: named week schedules picked per day, planned clock times, rotation
+      links with a suggested schedule, re-apply a schedule to a day
+        - [x] Backend
+        - [ ] Schedule editor
+        - [ ] Schedule selector on Today and in the day editor, re-apply
     - [ ] Hours-only jobs: `jobs.kind` (`"scheduled"` or `"hours"`), set when the job is created.
       An hours job gets a schedule with no hours, created with it in one transaction, so every
       calculation stays the same; the UI shows worked hours instead of balance, flex and
       leave-at, and no schedules. A job never changes kind.
+    - [ ] Resume the day: clock in again after clocking out; the gap becomes an absence
     - [ ] Served by axum from the same container
 - [ ] Authentication
 - [ ] Backups (`VACUUM INTO` + off-device copy) and a `deploy.sh`
