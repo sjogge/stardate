@@ -2,6 +2,7 @@
 	import { Plus, X } from '@lucide/svelte';
 	import type { Day, PauseKind } from '$lib/api/types';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import ScheduleSelect from '$lib/components/ScheduleSelect.svelte';
 	import { formatShortDate, todayIsoDate } from '$lib/format';
 	import { PAUSE_NAMES } from '$lib/features/workday/actions';
 	import { draftFromDay, emptyPause, toDayRequest, type DayDraft } from './dayForm';
@@ -18,13 +19,33 @@
 	let editing = $state<Day>();
 	let draft = $state<DayDraft>(draftFromDay(undefined, ''));
 	let error = $state<string>();
+	/** The backend's suggestion for the new day's date, marked in the selector */
+	let suggestedId = $state<number>();
+	/** Once a schedule is picked by hand, a changed date no longer replaces it with a suggestion */
+	let scheduleChosen = false;
 
 	/** Edits `day`, or registers a new day on `workDate` */
 	export function open(day?: Day, workDate = todayIsoDate()): void {
 		editing = day;
 		draft = draftFromDay(day, workDate);
 		error = undefined;
+		suggestedId = undefined;
+		scheduleChosen = false;
+		if (!day) suggestFor(workDate);
 		dialog?.showModal();
+	}
+
+	async function suggestFor(workDate: string): Promise<void> {
+		const suggestion = await history.suggestedScheduleId(workDate);
+		// The date may have changed while the suggestion was on its way
+		if (draft.workDate !== workDate) return;
+		suggestedId = suggestion;
+		if (!scheduleChosen) draft.scheduleId = suggestion;
+	}
+
+	function chooseSchedule(scheduleId: number): void {
+		draft.scheduleId = scheduleId;
+		scheduleChosen = true;
 	}
 
 	async function submit(event: SubmitEvent): Promise<void> {
@@ -75,8 +96,26 @@
 					required
 					max={todayIsoDate()}
 					bind:value={draft.workDate}
+					onchange={() => suggestFor(draft.workDate)}
 				/>
 			</label>
+		{/if}
+
+		<ScheduleSelect
+			schedules={history.schedules}
+			value={draft.scheduleId}
+			{suggestedId}
+			onchange={chooseSchedule}
+		/>
+		{#if editing}
+			{#if draft.scheduleId !== draft.registeredScheduleId}
+				<p class="text-sm">The day takes the expected times of the chosen schedule.</p>
+			{:else}
+				<label class="flex items-center gap-2">
+					<input type="checkbox" class="checkbox" bind:checked={draft.reapply} />
+					<span>Re-apply the schedule's times (e.g. after editing the schedule)</span>
+				</label>
+			{/if}
 		{/if}
 
 		<fieldset class="flex flex-wrap items-center gap-4">

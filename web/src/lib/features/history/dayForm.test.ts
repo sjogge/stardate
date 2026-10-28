@@ -69,7 +69,7 @@ describe('dayForm', () => {
 	});
 
 	it('puts an end before the start on the next day', () => {
-		const draft = draftFromDay(undefined, '2026-10-23');
+		const draft = draftFromDay(undefined, '2026-10-23', 1);
 		draft.start = '22:00';
 		draft.end = '06:00';
 
@@ -81,7 +81,7 @@ describe('dayForm', () => {
 	});
 
 	it('leaves the end out while the day is open', () => {
-		const draft = draftFromDay(undefined, '2026-10-26');
+		const draft = draftFromDay(undefined, '2026-10-26', 1);
 		draft.start = '08:00';
 
 		const result = toDayRequest(draft);
@@ -99,7 +99,7 @@ describe('dayForm', () => {
 	});
 
 	it('asks for what is missing', () => {
-		const draft = draftFromDay(undefined, '2026-10-26');
+		const draft = draftFromDay(undefined, '2026-10-26', 1);
 		expect(toDayRequest(draft)).toEqual({ error: 'Enter the start time.' });
 
 		draft.start = '08:00';
@@ -115,7 +115,7 @@ describe('dayForm', () => {
 	});
 
 	it('sends a bonus day with nothing expected', () => {
-		const draft = draftFromDay(undefined, '2026-12-25');
+		const draft = draftFromDay(undefined, '2026-12-25', 1);
 		draft.start = '09:00';
 		draft.bonus = true;
 
@@ -133,17 +133,36 @@ describe('dayForm', () => {
 		expect(draft.bonus).toBe(true);
 
 		draft.bonus = false;
-		expect(toDayRequest(draft)).toMatchObject({ request: { refreshExpected: true } });
+		expect(toDayRequest(draft)).toMatchObject({ request: { scheduleId: 1 } });
 
 		draft.bonus = true;
 		draft.kind = 'flex';
-		expect(toDayRequest(draft)).toMatchObject({ request: { kind: 'flex', refreshExpected: true } });
+		expect(toDayRequest(draft)).toMatchObject({ request: { kind: 'flex', scheduleId: 1 } });
 	});
 
 	it('leaves the expected times alone otherwise', () => {
 		const result = toDayRequest(draftFromDay(day, 'ignored'));
 
 		expect(result).not.toHaveProperty('request.expected');
-		expect(result).not.toHaveProperty('request.refreshExpected');
+		expect(result).not.toHaveProperty('request.scheduleId');
+	});
+
+	it('names the schedule of a new day, and asks for one when there is none', () => {
+		const draft = draftFromDay(undefined, '2026-10-26', 2);
+		draft.start = '08:00';
+		expect(toDayRequest(draft)).toMatchObject({ request: { scheduleId: 2 } });
+
+		draft.scheduleId = undefined;
+		expect(toDayRequest(draft)).toEqual({ error: 'Choose the schedule this day is worked on.' });
+	});
+
+	it('re-takes the expected times when another schedule is chosen or re-applying is asked', () => {
+		const draft = draftFromDay(day, 'ignored');
+		draft.scheduleId = 2;
+		expect(toDayRequest(draft)).toMatchObject({ request: { scheduleId: 2 } });
+
+		draft.scheduleId = 1;
+		draft.reapply = true;
+		expect(toDayRequest(draft)).toMatchObject({ request: { scheduleId: 1 } });
 	});
 });

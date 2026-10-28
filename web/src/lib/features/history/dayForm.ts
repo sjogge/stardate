@@ -32,6 +32,15 @@ export interface DayDraft {
 	bonus: boolean;
 	/** Whether the day was registered with nothing expected; undefined for a new day */
 	registeredAsBonus: boolean | undefined;
+	/** The schedule the day is worked on; undefined until chosen */
+	scheduleId: number | undefined;
+	/**
+	 * The day's schedule as registered: undefined for a new day, null if that schedule was deleted.
+	 * Choosing another one re-takes the expected times.
+	 */
+	registeredScheduleId: number | null | undefined;
+	/** Re-take the expected times from the same schedule, e.g. after editing it */
+	reapply: boolean;
 }
 
 /** Expected values that make a day a bonus day; the paid flags stay as the schedule has them */
@@ -43,9 +52,9 @@ export interface DayRequest {
 	endedAt?: string;
 	pauses: PauseRequest[];
 	note: string | null;
+	/** Required for a new day; on an existing day it re-takes the expected values from it */
+	scheduleId?: number;
 	expected?: typeof NOTHING_EXPECTED;
-	/** Re-takes the expected values from the schedule, undoing a bonus day */
-	refreshExpected?: boolean;
 }
 
 export interface PauseRequest {
@@ -59,11 +68,26 @@ export function emptyPause(kind: PauseKind = 'lunch'): PauseDraft {
 	return { kind, start: '', end: '', duration: '' };
 }
 
-/** A form filled from `day`, or an empty work day on `workDate` */
-export function draftFromDay(day: Day | undefined, workDate: string): DayDraft {
+/** A form filled from `day`, or an empty work day on `workDate` on `scheduleId` (the suggestion) */
+export function draftFromDay(
+	day: Day | undefined,
+	workDate: string,
+	scheduleId?: number
+): DayDraft {
 	if (!day) {
-		const empty = { start: '', end: '', pauses: [], note: '' };
-		return { workDate, kind: 'work', ...empty, bonus: false, registeredAsBonus: undefined };
+		return {
+			workDate,
+			kind: 'work',
+			start: '',
+			end: '',
+			pauses: [],
+			note: '',
+			bonus: false,
+			registeredAsBonus: undefined,
+			scheduleId,
+			registeredScheduleId: undefined,
+			reapply: false
+		};
 	}
 	// Also true for a weekday the schedule has no hours on (e.g. a Saturday): that is bonus time too
 	const bonus =
@@ -84,8 +108,25 @@ export function draftFromDay(day: Day | undefined, workDate: string): DayDraft {
 		})),
 		note: day.note ?? '',
 		bonus,
-		registeredAsBonus: bonus
+		registeredAsBonus: bonus,
+		scheduleId: day.scheduleId ?? undefined,
+		registeredScheduleId: day.scheduleId,
+		reapply: false
 	};
+}
+
+/**
+ * Whether the request names the schedule, so the backend takes the expected values from it: always
+ * for a new day, and on an edit when another schedule is chosen, re-applying is asked for, or a
+ * bonus day stops being one (it gets the schedule's times back).
+ */
+function takesSchedule(draft: DayDraft, bonus: boolean): boolean {
+	if (draft.registeredScheduleId === undefined) return true;
+	return (
+		draft.scheduleId !== draft.registeredScheduleId ||
+		draft.reapply ||
+		(draft.registeredAsBonus === true && !bonus)
+	);
 }
 
 /** The request body, or the first problem a person can fix in the form; the backend checks the rest */
@@ -93,12 +134,14 @@ export function toDayRequest(draft: DayDraft): { request: DayRequest } | { error
 	if (draft.workDate === '') return { error: 'Choose the date.' };
 	const note = draft.note.trim() === '' ? null : draft.note.trim();
 	const bonus = draft.kind === 'work' && draft.bonus;
-	// A day that stops being a bonus day (or becomes a flex day) takes the schedule's times again
-	const expectation = bonus
-		? { expected: NOTHING_EXPECTED }
-		: draft.registeredAsBonus
-			? { refreshExpected: true }
-			: {};
+	let expectation: Pick<DayRequest, 'scheduleId' | 'expected'> = {};
+	if (takesSchedule(draft, bonus)) {
+		if (draft.scheduleId === undefined)
+			return { error: 'Choose the schedule this day is worked on.' };
+		expectation = { scheduleId: draft.scheduleId };
+	}
+	// After any new snapshot, so a bonus day keeps nothing expected
+	if (bonus) expectation = { ...expectation, expected: NOTHING_EXPECTED };
 	if (draft.kind === 'flex') {
 		return { request: { kind: 'flex', pauses: [], note, ...expectation } };
 	}

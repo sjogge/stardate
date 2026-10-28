@@ -1,5 +1,13 @@
 import { api } from '$lib/api/client';
-import type { Day, FlexAdjustment, FlexBalance, Job, RangeTotals, Summary } from '$lib/api/types';
+import type {
+	Day,
+	FlexAdjustment,
+	FlexBalance,
+	Job,
+	RangeTotals,
+	Schedule,
+	Summary
+} from '$lib/api/types';
 import { todayIsoDate } from '$lib/format';
 import { showSuccess } from '$lib/toast';
 import type { AdjustmentRequest } from './adjustmentForm';
@@ -18,6 +26,8 @@ export class History {
 	flex = $state<FlexBalance>();
 	/** Oldest first, as the API returns them */
 	adjustments = $state<FlexAdjustment[]>([]);
+	/** The job's schedules, for picking the one a day is registered on */
+	schedules = $state<Schedule[]>([]);
 	/** A load is in flight */
 	loading = $state(true);
 	failed = $state(false);
@@ -84,22 +94,38 @@ export class History {
 		this.loading = true;
 		try {
 			// Loaded together: a change to a day or an adjustment moves the month and the balance
-			const [days, summary, flex, adjustments] = await Promise.all([
+			const [days, summary, flex, adjustments, schedules] = await Promise.all([
 				api.get<Day[]>(`${job}/days?from=${from}&to=${to}`, options),
 				api.get<Summary>(`${job}/summary?from=${from}&to=${to}`, options),
 				api.get<FlexBalance>(`${job}/flex`, options),
-				api.get<FlexAdjustment[]>(`${job}/flex-adjustments`, options)
+				api.get<FlexAdjustment[]>(`${job}/flex-adjustments`, options),
+				api.get<Schedule[]>(`${job}/schedules`, options)
 			]);
 			this.days = days;
 			this.totals = summary.totals;
 			this.flex = flex;
 			this.adjustments = adjustments;
+			this.schedules = schedules;
 			this.failed = false;
 		} catch {
 			// Already toasted; an aborted load is followed by a newer one
 			if (!controller.signal.aborted) this.failed = true;
 		} finally {
 			if (!controller.signal.aborted) this.loading = false;
+		}
+	}
+
+	/** The backend's suggestion for a new day on `workDate` (e.g. the next week of a rotation) */
+	async suggestedScheduleId(workDate: string): Promise<number | undefined> {
+		if (this.jobId === undefined) return undefined;
+		try {
+			const suggestion = await api.get<{ scheduleId: number | null }>(
+				`/jobs/${this.jobId}/schedules/suggested?date=${workDate}`
+			);
+			return suggestion.scheduleId ?? undefined;
+		} catch {
+			// Already toasted; the selector then waits for a choice
+			return undefined;
 		}
 	}
 

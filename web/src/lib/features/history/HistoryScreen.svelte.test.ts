@@ -66,6 +66,20 @@ const adjustment = {
 	updatedAt: ''
 };
 
+function schedule(id: number, name: string) {
+	return {
+		id,
+		name,
+		lunchPaid: false,
+		breaksPaid: true,
+		nextScheduleId: null,
+		days: [],
+		version: 1,
+		createdAt: '',
+		updatedAt: ''
+	};
+}
+
 function json(body: unknown): Response {
 	return new Response(JSON.stringify(body), { status: 200 });
 }
@@ -90,6 +104,8 @@ beforeEach(() => {
 			return json({ balanceMinutes: 135, daysMinutes: 15, adjustmentsMinutes: 120 });
 		}
 		if (path.endsWith('/flex-adjustments')) return json([adjustment]);
+		if (path.includes('/schedules/suggested')) return json({ scheduleId: 2 });
+		if (path.endsWith('/schedules')) return json([schedule(1, 'Daytime'), schedule(2, 'Nights')]);
 		// Only this month has days; earlier months are empty
 		return json(path.includes(`from=${from}`) ? [day(from, -30), day(secondDay, 45)] : []);
 	});
@@ -255,5 +271,40 @@ describe('editing days', () => {
 		expect(url).toBe('/api/jobs/1/flex-adjustments/9');
 		expect(new Headers(init.headers).get('If-Match')).toBe('"2"');
 		expect(JSON.parse(String(init.body)).minutes).toBe(180);
+	});
+
+	it('registers a new day on the suggested schedule', async () => {
+		render(HistoryScreen);
+
+		await page.getByRole('button', { name: 'Add day' }).click();
+		const form = page.getByRole('dialog');
+		await expect
+			.element(form.getByLabelText('Schedule', { exact: true }))
+			.toHaveDisplayValue('Nights (suggested)');
+		await form.getByLabelText('Date').fill(from.replace(/-01$/, '-15'));
+		await form.getByLabelText('Start').fill('22:00');
+		await form.getByRole('button', { name: 'Save' }).click();
+
+		await waitFor('PUT');
+		expect(JSON.parse(String(sent('PUT')[1].body)).scheduleId).toBe(2);
+	});
+
+	it("re-takes an edited day's expected times from another schedule", async () => {
+		render(HistoryScreen);
+
+		// The table's button: the phone cards with the same buttons are only hidden by CSS
+		await page
+			.getByRole('table')
+			.getByRole('button', { name: `Edit ${formatShortDate(secondDay)}` })
+			.click();
+		const form = page.getByRole('dialog');
+		await form.getByLabelText('Schedule', { exact: true }).selectOptions('Nights');
+		await expect
+			.element(form.getByText('The day takes the expected times of the chosen schedule.'))
+			.toBeVisible();
+		await form.getByRole('button', { name: 'Save' }).click();
+
+		await waitFor('PUT');
+		expect(JSON.parse(String(sent('PUT')[1].body)).scheduleId).toBe(2);
 	});
 });
