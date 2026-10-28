@@ -1,7 +1,7 @@
-### Stardate seed: one job with a schedule history
+### Stardate seed: one job with two schedules, a week of days, and a job on rotating shifts
 # VS Code "REST Client" extension (humao.rest-client).
 # Start from an empty database (stop the app, delete backend/stardate.db*, start again)
-# and send the requests in order: later ones use the job id captured from the first.
+# and send the requests in order: later ones use ids captured from earlier responses.
 
 @baseUrl = http://localhost:3000/api
 @jsonType = application/json
@@ -18,62 +18,49 @@ Content-Type: {{jsonType}}
 ###
 @jobId = {{job.response.body.$.id}}
 
-### 2. Schedule from 2026-01-01: 9 h at work per day, Monday to Friday
-# workMinutes is the work that counts (8 h). Lunch is unpaid and breaks are paid, so
-# leaveAt = start + 480 work + 60 lunch = start + 9 h.
-# @name schedule2026
+### 2. The usual week: 08:00 to 17:00, Monday to Friday
+# The backend derives the expected work: 9 h shift - 1 h unpaid lunch = 8 h (breaks are paid).
+# @name office
 POST {{baseUrl}}/jobs/{{jobId}}/schedules
 Content-Type: {{jsonType}}
 
 {
-  "validFrom": "2026-01-01",
+  "name": "Office",
   "lunchPaid": false,
   "breaksPaid": true,
   "days": [
-    { "weekday": 1, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 2, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 3, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 4, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 5, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 }
+    { "weekday": 1, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 2, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 3, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 4, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 5, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 }
   ]
 }
 
-### 3. Summer hours from 2026-06-01: shorter Fridays without lunch
-# A new version instead of an edit, so days before June keep the old expectation.
-# @name scheduleSummer
+###
+@officeId = {{office.response.body.$.id}}
+
+### 3. Summer hours: shorter Fridays without lunch (5 h)
+# A second schedule picked for the summer days, so days on "Office" keep their expectation.
+# @name summer
 POST {{baseUrl}}/jobs/{{jobId}}/schedules
 Content-Type: {{jsonType}}
 
 {
-  "validFrom": "2026-06-01",
+  "name": "Summer",
   "lunchPaid": false,
   "breaksPaid": true,
   "days": [
-    { "weekday": 1, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 2, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 3, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 4, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 5, "workMinutes": 300, "lunchMinutes": 0, "breakMinutes": 15 }
+    { "weekday": 1, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 2, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 3, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 4, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 5, "start": "08:00", "end": "13:00", "lunchMinutes": 0, "breakMinutes": 15 }
   ]
 }
 
-### 4. Back to normal from 2026-09-01
-# @name scheduleAutumn
-POST {{baseUrl}}/jobs/{{jobId}}/schedules
-Content-Type: {{jsonType}}
-
-{
-  "validFrom": "2026-09-01",
-  "lunchPaid": false,
-  "breaksPaid": true,
-  "days": [
-    { "weekday": 1, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 2, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 3, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 4, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 5, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 }
-  ]
-}
+###
+@summerId = {{summer.response.body.$.id}}
 
 ### 5. Register a week of past days (local time +02:00; the server stores UTC)
 # Monday: nothing logged, so lunch and breaks default to the schedule: balance 0
@@ -84,6 +71,7 @@ If-None-Match: *
 
 {
   "kind": "work",
+  "scheduleId": {{officeId}},
   "startedAt": "2026-10-19T08:00:00+02:00",
   "endedAt": "2026-10-19T17:00:00+02:00"
 }
@@ -95,6 +83,7 @@ If-None-Match: *
 
 {
   "kind": "work",
+  "scheduleId": {{officeId}},
   "startedAt": "2026-10-20T08:00:00+02:00",
   "endedAt": "2026-10-20T16:45:00+02:00",
   "pauses": [
@@ -111,6 +100,7 @@ If-None-Match: *
 
 {
   "kind": "work",
+  "scheduleId": {{officeId}},
   "startedAt": "2026-10-21T08:00:00+02:00",
   "endedAt": "2026-10-21T18:30:00+02:00",
   "pauses": [
@@ -126,6 +116,7 @@ If-None-Match: *
 
 {
   "kind": "work",
+  "scheduleId": {{officeId}},
   "startedAt": "2026-10-22T07:30:00+02:00",
   "endedAt": "2026-10-22T17:30:00+02:00",
   "pauses": [
@@ -140,6 +131,7 @@ If-None-Match: *
 
 {
   "kind": "work",
+  "scheduleId": {{officeId}},
   "startedAt": "2026-10-23T08:00:00+02:00",
   "endedAt": "2026-10-23T17:00:00+02:00",
   "pauses": [
@@ -156,6 +148,7 @@ If-None-Match: *
 
 {
   "kind": "work",
+  "scheduleId": {{summerId}},
   "startedAt": "2026-07-03T08:00:00+02:00",
   "endedAt": "2026-07-03T13:00:00+02:00"
 }
@@ -166,10 +159,11 @@ Content-Type: {{jsonType}}
 If-None-Match: *
 
 {
-  "kind": "flex"
+  "kind": "flex",
+  "scheduleId": {{officeId}}
 }
 
-### 6. Check the result: the job, its schedule versions and the registered days
+### 6. Check the result: the job, its schedules and the registered days
 GET {{baseUrl}}/jobs/{{jobId}}
 
 ###
@@ -179,11 +173,13 @@ GET {{baseUrl}}/jobs/{{jobId}}/schedules
 GET {{baseUrl}}/jobs/{{jobId}}/days?from=2026-07-01&to=2026-10-31
 
 ### 7. Optional: clock in now, to see a live day with leaveAt
+# A client would preselect GET {{baseUrl}}/jobs/{{jobId}}/schedules/suggested?date=<today>
 POST {{baseUrl}}/jobs/{{jobId}}/clock-in
 Content-Type: {{jsonType}}
 
 {
-  "workDate": "{{$localDatetime 'YYYY-MM-DD'}}"
+  "workDate": "{{$localDatetime 'YYYY-MM-DD'}}",
+  "scheduleId": {{officeId}}
 }
 
 ### 8. A flex adjustment: two hours carried over from the old system
@@ -204,3 +200,89 @@ GET {{baseUrl}}/jobs/{{jobId}}/summary?from=2026-10-01&to=2026-10-31
 
 ### 10. The start screen: every active job, with today's day
 GET {{baseUrl}}/status?date={{$localDatetime 'YYYY-MM-DD'}}
+
+### 11. A second job on rotating shifts: evenings one week, nights the next
+# @name shiftJob
+POST {{baseUrl}}/jobs
+Content-Type: {{jsonType}}
+
+{
+  "name": "Night Hospital"
+}
+
+###
+@shiftJobId = {{shiftJob.response.body.$.id}}
+
+### Evenings, 14:00 to 23:00
+# @name evenings
+POST {{baseUrl}}/jobs/{{shiftJobId}}/schedules
+Content-Type: {{jsonType}}
+
+{
+  "name": "Evenings",
+  "lunchPaid": true,
+  "breaksPaid": true,
+  "days": [
+    { "weekday": 1, "start": "14:00", "end": "23:00", "lunchMinutes": 30, "breakMinutes": 30 },
+    { "weekday": 2, "start": "14:00", "end": "23:00", "lunchMinutes": 30, "breakMinutes": 30 },
+    { "weekday": 3, "start": "14:00", "end": "23:00", "lunchMinutes": 30, "breakMinutes": 30 }
+  ]
+}
+
+###
+@eveningsId = {{evenings.response.body.$.id}}
+
+### Nights, 22:00 to 07:00 (a shift belongs to the weekday it starts on); evenings follow
+# @name nights
+POST {{baseUrl}}/jobs/{{shiftJobId}}/schedules
+Content-Type: {{jsonType}}
+
+{
+  "name": "Nights",
+  "lunchPaid": true,
+  "breaksPaid": true,
+  "nextScheduleId": {{eveningsId}},
+  "days": [
+    { "weekday": 4, "start": "22:00", "end": "07:00", "lunchMinutes": 30, "breakMinutes": 30 },
+    { "weekday": 5, "start": "22:00", "end": "07:00", "lunchMinutes": 30, "breakMinutes": 30 },
+    { "weekday": 6, "start": "22:00", "end": "07:00", "lunchMinutes": 30, "breakMinutes": 30 }
+  ]
+}
+
+###
+@nightsId = {{nights.response.body.$.id}}
+
+### Close the rotation: nights follow evenings (version 1, just created)
+PUT {{baseUrl}}/jobs/{{shiftJobId}}/schedules/{{eveningsId}}
+Content-Type: {{jsonType}}
+If-Match: "1"
+
+{
+  "name": "Evenings",
+  "lunchPaid": true,
+  "breaksPaid": true,
+  "nextScheduleId": {{nightsId}},
+  "days": [
+    { "weekday": 1, "start": "14:00", "end": "23:00", "lunchMinutes": 30, "breakMinutes": 30 },
+    { "weekday": 2, "start": "14:00", "end": "23:00", "lunchMinutes": 30, "breakMinutes": 30 },
+    { "weekday": 3, "start": "14:00", "end": "23:00", "lunchMinutes": 30, "breakMinutes": 30 }
+  ]
+}
+
+### An evening shift on Monday 2026-10-19
+PUT {{baseUrl}}/jobs/{{shiftJobId}}/days/2026-10-19
+Content-Type: {{jsonType}}
+If-None-Match: *
+
+{
+  "kind": "work",
+  "scheduleId": {{eveningsId}},
+  "startedAt": "2026-10-19T14:00:00+02:00",
+  "endedAt": "2026-10-19T23:00:00+02:00"
+}
+
+### The suggestion for the next week is nights; the week after, evenings again
+GET {{baseUrl}}/jobs/{{shiftJobId}}/schedules/suggested?date=2026-10-29
+
+###
+GET {{baseUrl}}/jobs/{{shiftJobId}}/schedules/suggested?date=2026-11-05

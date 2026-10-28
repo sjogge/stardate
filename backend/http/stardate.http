@@ -44,45 +44,48 @@ POST {{baseUrl}}/jobs/{{jobId}}/schedules
 Content-Type: {{jsonType}}
 
 {
-  "validFrom": "2026-01-01",
+  "name": "Daytime",
   "lunchPaid": false,
   "breaksPaid": true,
   "days": [
-    { "weekday": 1, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 2, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 3, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 4, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 5, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 }
+    { "weekday": 1, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 2, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 3, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 4, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 5, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 }
   ]
 }
 
 ###
 @scheduleId = {{createSchedule.response.body.$.id}}
 
-### List schedules (ordered by validFrom, each with its weekday rows)
+### List schedules (ordered by name, each with its weekday rows and derived workMinutes)
 GET {{baseUrl}}/jobs/{{jobId}}/schedules
 
 ### Get schedule
 # @name getSchedule
 GET {{baseUrl}}/jobs/{{jobId}}/schedules/{{scheduleId}}
 
-### Update schedule (replaces the weekday rows as a whole)
+### Update schedule (replaces the weekday rows as a whole); a 4-day week with paid lunch
 # @name updateSchedule
 PUT {{baseUrl}}/jobs/{{jobId}}/schedules/{{scheduleId}}
 Content-Type: {{jsonType}}
 If-Match: {{getSchedule.response.headers.ETag}}
 
 {
-  "validFrom": "2026-01-01",
+  "name": "Daytime",
   "lunchPaid": true,
   "breaksPaid": true,
   "days": [
-    { "weekday": 1, "workMinutes": 450, "lunchMinutes": 30, "breakMinutes": 30 },
-    { "weekday": 2, "workMinutes": 450, "lunchMinutes": 30, "breakMinutes": 30 },
-    { "weekday": 3, "workMinutes": 450, "lunchMinutes": 30, "breakMinutes": 30 },
-    { "weekday": 4, "workMinutes": 450, "lunchMinutes": 30, "breakMinutes": 30 }
+    { "weekday": 1, "start": "08:00", "end": "16:00", "lunchMinutes": 30, "breakMinutes": 30 },
+    { "weekday": 2, "start": "08:00", "end": "16:00", "lunchMinutes": 30, "breakMinutes": 30 },
+    { "weekday": 3, "start": "08:00", "end": "16:00", "lunchMinutes": 30, "breakMinutes": 30 },
+    { "weekday": 4, "start": "08:00", "end": "16:00", "lunchMinutes": 30, "breakMinutes": 30 }
   ]
 }
+
+### Suggested schedule for a new day (the job has no days yet: its first schedule)
+GET {{baseUrl}}/jobs/{{jobId}}/schedules/suggested?date=2026-10-26
 
 ### Delete schedule (uses the ETag from the update above)
 DELETE {{baseUrl}}/jobs/{{jobId}}/schedules/{{scheduleId}}
@@ -102,22 +105,26 @@ Content-Type: {{jsonType}}
 ###
 @dayJobId = {{dayJob.response.body.$.id}}
 
-### Give it a schedule: days can only be registered on dates a schedule covers
+### Give it a schedule: every day is registered against one
+# @name daySchedule
 POST {{baseUrl}}/jobs/{{dayJobId}}/schedules
 Content-Type: {{jsonType}}
 
 {
-  "validFrom": "2026-01-01",
+  "name": "Office",
   "lunchPaid": false,
   "breaksPaid": true,
   "days": [
-    { "weekday": 1, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 2, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 3, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 4, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 5, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 }
+    { "weekday": 1, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 2, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 3, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 4, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 5, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 }
   ]
 }
+
+###
+@dayScheduleId = {{daySchedule.response.body.$.id}}
 
 ### Create a day (create-only: 412 if it already exists)
 # @name createDay
@@ -127,6 +134,7 @@ If-None-Match: *
 
 {
   "kind": "work",
+  "scheduleId": {{dayScheduleId}},
   "startedAt": "2026-10-23T08:00:00+02:00",
   "endedAt": "2026-10-23T17:00:00+02:00",
   "pauses": [
@@ -171,7 +179,7 @@ If-Match: {{replaceDay.response.headers.ETag}}
   "expected": { "workMinutes": 420 }
 }
 
-### Re-take the snapshot from the schedule valid on that date
+### Re-take the snapshot: sending scheduleId again (e.g. after editing the schedule)
 # @name refreshDay
 PUT {{baseUrl}}/jobs/{{dayJobId}}/days/2026-10-23
 Content-Type: {{jsonType}}
@@ -184,7 +192,7 @@ If-Match: {{overrideDay.response.headers.ETag}}
   "pauses": [
     { "kind": "lunch", "minutes": 45 }
   ],
-  "refreshExpected": true
+  "scheduleId": {{dayScheduleId}}
 }
 
 ### A bonus day: work on a public holiday (Midsummer Eve, a Friday); nothing expected, all of it is plus
@@ -194,6 +202,7 @@ If-None-Match: *
 
 {
   "kind": "work",
+  "scheduleId": {{dayScheduleId}},
   "startedAt": "2026-06-19T09:00:00+02:00",
   "endedAt": "2026-06-19T12:00:00+02:00",
   "expected": { "workMinutes": 0, "lunchMinutes": 0, "breakMinutes": 0 }
@@ -215,7 +224,8 @@ POST {{baseUrl}}/jobs/{{dayJobId}}/clock-in
 Content-Type: {{jsonType}}
 
 {
-  "workDate": "{{$localDatetime 'YYYY-MM-DD'}}"
+  "workDate": "{{$localDatetime 'YYYY-MM-DD'}}",
+  "scheduleId": {{dayScheduleId}}
 }
 
 ### Start lunch (now)
@@ -347,28 +357,33 @@ Content-Type: {{jsonType}}
   "title": "Wrong field"
 }
 
-### 422: date that does not exist
-POST {{baseUrl}}/jobs/{{jobId}}/schedules
-Content-Type: {{jsonType}}
-
-{
-  "validFrom": "2026-02-30",
-  "lunchPaid": false,
-  "breaksPaid": true,
-  "days": []
-}
+### 400: date that does not exist (in the query string)
+GET {{baseUrl}}/jobs/{{jobId}}/days?from=2026-02-30&to=2026-03-01
 
 ### 400: weekday listed twice
 POST {{baseUrl}}/jobs/{{jobId}}/schedules
 Content-Type: {{jsonType}}
 
 {
-  "validFrom": "2026-03-01",
+  "name": "Twice",
   "lunchPaid": false,
   "breaksPaid": true,
   "days": [
-    { "weekday": 1, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 },
-    { "weekday": 1, "workMinutes": 480, "lunchMinutes": 60, "breakMinutes": 30 }
+    { "weekday": 1, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 },
+    { "weekday": 1, "start": "08:00", "end": "17:00", "lunchMinutes": 60, "breakMinutes": 30 }
+  ]
+}
+
+### 400: lunch and breaks longer than the shift
+POST {{baseUrl}}/jobs/{{jobId}}/schedules
+Content-Type: {{jsonType}}
+
+{
+  "name": "Too long lunch",
+  "lunchPaid": false,
+  "breaksPaid": true,
+  "days": [
+    { "weekday": 1, "start": "08:00", "end": "17:00", "lunchMinutes": 1020, "breakMinutes": 0 }
   ]
 }
 
@@ -379,6 +394,7 @@ If-None-Match: *
 
 {
   "kind": "work",
+  "scheduleId": {{dayScheduleId}},
   "startedAt": "2026-10-20T08:00:00+02:00",
   "endedAt": "2026-10-20T17:00:00+02:00",
   "pauses": [
@@ -393,18 +409,19 @@ Content-Type: {{jsonType}}
 If-None-Match: *
 
 {
-  "kind": "flex"
+  "kind": "flex",
+  "scheduleId": {{dayScheduleId}}
 }
 
-### 409: a day on a date no schedule covers (the schedule starts on 2026-01-01)
-PUT {{baseUrl}}/jobs/{{dayJobId}}/days/2025-12-31
+### 400: a new day without scheduleId
+PUT {{baseUrl}}/jobs/{{dayJobId}}/days/2026-10-21
 Content-Type: {{jsonType}}
 If-None-Match: *
 
 {
   "kind": "work",
-  "startedAt": "2025-12-31T08:00:00+01:00",
-  "endedAt": "2025-12-31T12:00:00+01:00"
+  "startedAt": "2026-10-21T08:00:00+02:00",
+  "endedAt": "2026-10-21T12:00:00+02:00"
 }
 
 ### 428: day PUT without If-Match or If-None-Match
@@ -436,6 +453,7 @@ Content-Type: {{jsonType}}
 
 {
   "workDate": "{{$localDatetime 'YYYY-MM-DD'}}",
+  "scheduleId": {{dayScheduleId}},
   "at": "2099-01-01T08:00:00Z"
 }
 
