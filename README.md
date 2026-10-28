@@ -381,18 +381,18 @@ person is used to. Native date and time inputs are the browser's own and always 
 
 A job's schedules are edited at `/jobs/{id}` in a dialog (full screen on phones).
 
-- **A new version starts as a copy of the latest one,** since a change from a certain date usually
-  changes little. The "applies from" date and its effect are shown first: days already registered
-  keep their snapshot, so a schedule change never alters history.
-- **A job's first schedule has no default date.** Days can only be registered on dates a schedule
-  covers, so the form asks for it and suggests the first day you track.
-- **Paid lunch and breaks have no default** for a job's first schedule, matching the backend
+- **A schedule has a name and a planned shift per weekday:** start and end as `<input type="time">`
+  (they are clock times, so the device's 24-hour or am/pm format fits), lunch and breaks as typed
+  lengths (`0:30`, `format.ts`, `parseDuration`). A weekday left empty means no work is expected.
+- **The form does not calculate the expected work;** the backend derives it and the list shows it
+  per weekday, so the two can never disagree.
+- **"Duplicate" starts a new schedule from an existing one** without its rotation link, the quick
+  way to build the weeks of a rotation. "Next week" links a schedule to the one that follows it.
+- **Paid lunch and breaks have no default** for a new schedule, matching the backend
   (`ScheduleRequest` has no defaults): the form asks until both are chosen.
-- **Durations are typed as `8`, `8:00` or `0:45`** (`format.ts`, `parseDuration`) instead of in
-  minutes or with `<input type="time">`, which would show a clock (AM/PM in some locales) for what
-  is a duration. A weekday left empty means no work is expected that day.
 - **The form validates itself** (`novalidate`, `scheduleForm.ts`) and shows the first problem in one
-  alert, naming the weekday and field; the backend still validates every request.
+  alert, naming the weekday; the backend still validates every request (e.g. that lunch and breaks
+  fit in the shift).
 
 ### Back-dated actions send a local date and time
 
@@ -528,7 +528,7 @@ Ideas that are not needed now but are worth knowing about.
     - [ ] Schedule rework: named week schedules picked per day, planned clock times, rotation
       links with a suggested schedule, re-apply a schedule to a day
         - [x] Backend
-        - [ ] Schedule editor
+        - [x] Schedule editor
         - [ ] Schedule selector on Today and in the day editor, re-apply
     - [ ] Hours-only jobs: `jobs.kind` (`"scheduled"` or `"hours"`), set when the job is created.
       An hours job gets a schedule with no hours, created with it in one transaction, so every

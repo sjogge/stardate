@@ -69,7 +69,7 @@ Stardate is a personal time-tracking app with a Rust/Axum backend. This document
 
 - List entries grouped by day. Use a table from `md` upwards and a card list below it.
 - Edit entries in a Skeleton Dialog, presented as a full-screen sheet on mobile. Support create, edit, and delete (with confirmation).
-- Schedule edits must make the effective date explicit, because changes must never alter historical entries. Follow the backend contract.
+- Schedules are named weeks of planned shifts with no dates; every day names the schedule it is registered on, and days keep their snapshot, so schedule edits never alter registered days. Follow the backend contract (`docs/time-tracking.md`).
 - Client-side validation is for usability only (required fields, formats). The backend is authoritative.
 
 ## UX and accessibility
