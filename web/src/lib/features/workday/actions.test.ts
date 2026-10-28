@@ -44,6 +44,7 @@ function status(overrides: Partial<JobStatus>): JobStatus {
 		clockedIn: false,
 		runningPause: null,
 		availableActions: [],
+		suggestedScheduleId: null,
 		today: null,
 		flexBalanceMinutes: 0,
 		...overrides
@@ -124,11 +125,11 @@ describe('runAction', () => {
 		return JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
 	}
 
-	it('clocks in on the local date and lets the server pick the time', async () => {
-		const body = await sentBody(1, { type: 'clockIn' }, { workDate: '2026-10-26' });
+	it('clocks in on the local date and schedule, letting the server pick the time', async () => {
+		const body = await sentBody(1, { type: 'clockIn' }, { workDate: '2026-10-26' }, 3);
 
 		expect(fetchMock.mock.calls[0][0]).toBe('/api/jobs/1/clock-in');
-		expect(body).toEqual({ workDate: '2026-10-26' });
+		expect(body).toEqual({ workDate: '2026-10-26', scheduleId: 3 });
 	});
 
 	it('sends a back-dated time with the action', async () => {

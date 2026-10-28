@@ -1,5 +1,5 @@
 import { api } from '$lib/api/client';
-import type { JobStatus } from '$lib/api/types';
+import type { JobStatus, Schedule } from '$lib/api/types';
 import { currentLocalDateTime, toInstant, todayIsoDate, type LocalDateTime } from '$lib/format';
 import { showSuccess } from '$lib/toast';
 import { actionDoneMessage, runAction, type ActionTime, type WorkdayAction } from './actions';
@@ -17,6 +17,11 @@ export class Workday {
 	/** Set to back-date the next action (e.g. a forgotten clock-in); otherwise actions happen now */
 	customTime = $state<LocalDateTime>();
 
+	/** The selected job's schedules, for picking the one a clock-in registers the day on */
+	schedules = $state<Schedule[]>([]);
+	/** The schedule picked by hand; until then the backend's suggestion applies */
+	chosenScheduleId = $state<number>();
+
 	#loadController: AbortController | undefined;
 
 	/** The chosen job; until one is chosen, the job you are clocked in on, else the first */
@@ -26,6 +31,26 @@ export class Workday {
 			this.statuses.find((status) => status.clockedIn) ??
 			this.statuses[0]
 		);
+	}
+
+	/** The schedule a clock-in uses: the one picked, else the backend's suggestion */
+	get scheduleId(): number | undefined {
+		return this.chosenScheduleId ?? this.selected?.suggestedScheduleId ?? undefined;
+	}
+
+	selectJob(jobId: number): void {
+		this.selectedJobId = jobId;
+		// A schedule picked for one job means nothing for another
+		this.chosenScheduleId = undefined;
+	}
+
+	async loadSchedules(jobId: number): Promise<void> {
+		try {
+			this.schedules = await api.get<Schedule[]>(`/jobs/${jobId}/schedules`);
+		} catch {
+			// Already toasted; the selector then offers no schedules, so clock-in stays disabled
+			this.schedules = [];
+		}
 	}
 
 	/** False while a custom date or time is incomplete, so no action can be sent */
@@ -61,14 +86,17 @@ export class Workday {
 		const job = this.selected;
 		const time = this.#actionTime();
 		if (!job || !time || this.pending) return;
+		if (action.type === 'clockIn' && this.scheduleId === undefined) return;
 
 		this.pending = true;
 		try {
-			await runAction(job.jobId, action, time);
+			await runAction(job.jobId, action, time, this.scheduleId);
 			const message = actionDoneMessage(action);
 			showSuccess(this.customTime ? `${message} at ${this.customTime.time}` : message);
 			// A back-dated time is for one action; the next one happens now again
 			this.customTime = undefined;
+			// The next clock-in follows the suggestion again, which now reflects this day
+			this.chosenScheduleId = undefined;
 		} catch {
 			// Already toasted by the client's error handler
 		} finally {

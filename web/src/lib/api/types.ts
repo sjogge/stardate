@@ -102,6 +102,8 @@ export interface JobStatus {
 	clockedIn: boolean;
 	runningPause: RunningPause | null;
 	availableActions: LiveAction[];
+	/** The schedule to preselect for clocking in on the requested date; null when not clocking in */
+	suggestedScheduleId: number | null;
 	/** The open day, or else the day registered on the requested date */
 	today: Day | null;
 	/** Closed days and all adjustments; an open day counts once clocked out */

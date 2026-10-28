@@ -100,12 +100,20 @@ export interface ActionTime {
 	at?: string;
 }
 
-export function runAction(jobId: number, action: WorkdayAction, time: ActionTime): Promise<Day> {
+/** `scheduleId` is the schedule a clock-in registers the day on; other actions ignore it */
+export function runAction(
+	jobId: number,
+	action: WorkdayAction,
+	time: ActionTime,
+	scheduleId?: number
+): Promise<Day> {
 	const job = `/jobs/${jobId}`;
 	const at = time.at === undefined ? {} : { at: time.at };
 	switch (action.type) {
 		case 'clockIn':
-			return api.post<Day>(`${job}/clock-in`, { body: { workDate: time.workDate, ...at } });
+			return api.post<Day>(`${job}/clock-in`, {
+				body: { workDate: time.workDate, scheduleId, ...at }
+			});
 		case 'clockOut':
 			return api.post<Day>(`${job}/clock-out`, { body: at });
 		case 'startPause':
