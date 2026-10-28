@@ -331,6 +331,13 @@ expected values (the snapshot). There are no dated schedule versions.
 - Someone without a set schedule (e.g. a contractor) adds one schedule with no rows;
   "Hours-only jobs" on the roadmap will make that a choice when creating the job.
 
+### Choosing the schedule on Today
+
+Clocking in needs a schedule, so Today shows a selector above the Clock in button, preselected with
+`suggestedScheduleId` from `/status` and marked "(suggested)". A schedule picked by hand applies to
+that clock-in only; afterwards the suggestion takes over again. Without any schedule, Today links
+to the job's schedules instead.
+
 ### The day editor
 
 Days are added and edited on the History screen in a dialog (full screen on phones), sent as
@@ -346,10 +353,15 @@ Days are added and edited on the History screen in a dialog (full screen on phon
   resource changed.
 - **The date of a registered day is fixed**, as in the API: moving a day means deleting it and adding
   it again, because its schedule snapshot depends on the date.
+- **Every day has a schedule selector.** A new day starts on the backend's suggestion for its
+  date (`/schedules/suggested`), which follows a change of date until a schedule is picked by hand.
+  An edit sends `scheduleId` only when the expected times should be re-taken: another schedule is
+  chosen, "Re-apply the schedule's times" is ticked (after editing the schedule), or Bonus day is
+  unticked. Otherwise the day keeps its snapshot.
 - **Bonus day** (a checkbox for work days) sends `expected` work, lunch and break as 0: work on a
-  day the schedule expects some but nothing is owed, e.g. a public holiday. Unticking it sends
-  `refreshExpected`, so the day takes the schedule's times again. A day registered with nothing
-  expected shows up ticked, which also covers a Saturday.
+  day the schedule expects some but nothing is owed, e.g. a public holiday. Unticking it re-takes
+  the schedule's times. A day registered with nothing expected shows up ticked, which also covers
+  a Saturday.
 - Overriding single expected values (e.g. a half day) is not in the form (see Possible
   improvements).
 
@@ -525,11 +537,11 @@ Ideas that are not needed now but are worth knowing about.
     - [x] Jobs: create, rename, archive, delete
     - [x] Schedules per job
     - [x] Flex adjustments
-    - [ ] Schedule rework: named week schedules picked per day, planned clock times, rotation
+    - [x] Schedule rework: named week schedules picked per day, planned clock times, rotation
       links with a suggested schedule, re-apply a schedule to a day
         - [x] Backend
         - [x] Schedule editor
-        - [ ] Schedule selector on Today and in the day editor, re-apply
+        - [x] Schedule selector on Today and in the day editor, re-apply
     - [ ] Hours-only jobs: `jobs.kind` (`"scheduled"` or `"hours"`), set when the job is created.
       An hours job gets a schedule with no hours, created with it in one transaction, so every
       calculation stays the same; the UI shows worked hours instead of balance, flex and
